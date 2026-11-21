@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Save } from "lucide-react";
 import { getProfile, saveProfile, getCountries } from "../lib/api";
 import type { CandidateProfile, CountryConfig } from "../lib/types";
@@ -38,6 +38,7 @@ const defaultProfile: CandidateProfile = {
 export default function Profile() {
   const { t } = useTranslation("profile");
   const [profile, setProfile] = useState<CandidateProfile>(defaultProfile);
+  const lastLoaded = useRef<CandidateProfile>(defaultProfile);
   const [countries, setCountries] = useState<Record<string, CountryConfig>>({});
   const [noticePeriodOptions, setNoticePeriodOptions] = useState<string[]>([]);
   const [newTitle, setNewTitle] = useState("");
@@ -52,7 +53,10 @@ export default function Profile() {
 
   useEffect(() => {
     Promise.all([
-      getProfile().then((data) => setProfile({ ...defaultProfile, ...data })),
+      getProfile().then((data) => {
+        lastLoaded.current = { ...defaultProfile, ...data };
+        setProfile(lastLoaded.current);
+      }),
       getCountries().then((data) => {
         setCountries(data.countries);
         setNoticePeriodOptions(data.notice_period_options || []);
@@ -60,6 +64,22 @@ export default function Profile() {
     ])
       .catch(() => {})
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const incoming = (event as CustomEvent<CandidateProfile>).detail;
+      if (!incoming) return;
+      const previous = lastLoaded.current;
+      // Keep unsaved edits when extraction finishes behind the wizard.
+      setProfile((current) => Object.fromEntries(Object.entries(current).map(([key, value]) => [
+        key, JSON.stringify(value) === JSON.stringify(previous[key as keyof CandidateProfile])
+          ? incoming[key as keyof CandidateProfile] ?? value : value,
+      ])) as unknown as CandidateProfile);
+      lastLoaded.current = incoming;
+    };
+    window.addEventListener("langhire:profile-updated", handler);
+    return () => window.removeEventListener("langhire:profile-updated", handler);
   }, []);
 
   const handleCountryChange = (code: string) => {
@@ -116,6 +136,7 @@ export default function Profile() {
     try {
       setSaveError(null);
       await saveProfile(profile);
+      lastLoaded.current = profile;
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -245,6 +266,7 @@ export default function Profile() {
               onChange={(e) => update("preferred_work_mode", e.target.value)}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card"
             >
+              <option value="any">{t("work.any", "Any (onsite, hybrid, or remote)")}</option>
               <option value="remote">{t("work.remote")}</option>
               <option value="hybrid">{t("work.hybrid")}</option>
               <option value="onsite">{t("work.onsite")}</option>

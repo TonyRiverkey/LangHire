@@ -80,7 +80,10 @@ export default function SetupWizard({ onClose, onNavigateAway, initialStep = 0 }
     try {
       const result = await parseResumeToProfile();
       setParseResult(result);
-      if (result.success) await fetchStatus();
+      if (result.success) {
+        window.dispatchEvent(new CustomEvent("langhire:profile-updated", { detail: result.profile }));
+        await fetchStatus();
+      }
     } catch (e) {
       setParseResult({ success: false, message: e instanceof Error ? e.message : "Failed to parse resume" });
     } finally {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import Profile from "./Profile";
 import { getProfile, saveProfile, getCountries } from "../lib/api";
@@ -75,6 +75,22 @@ const sampleProfile: Partial<CandidateProfile> = {
 };
 
 describe("Profile page", () => {
+  it("shows extracted fields immediately while preserving unsaved edits", async () => {
+    const user = userEvent.setup();
+    render(<Profile />);
+    const input = await screen.findByDisplayValue("Ada Lovelace");
+    await user.clear(input);
+    await user.type(input, "Unsaved name");
+    act(() => {
+      window.dispatchEvent(new CustomEvent("langhire:profile-updated", {
+        detail: { ...sampleProfile, name: "AI name", skills: ["New extracted skill"] },
+      }));
+    });
+    expect(screen.getByDisplayValue("Unsaved name")).toBeInTheDocument();
+    expect(screen.getByText("New extracted skill")).toBeInTheDocument();
+    expect(screen.queryByText("Python")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     mockGetProfile.mockResolvedValue(sampleProfile as CandidateProfile);
     mockGetCountries.mockResolvedValue({
