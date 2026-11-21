@@ -81,7 +81,8 @@ describe("LLMSettingsForm", () => {
     await screen.findByText("selectProvider");
 
     const radios = screen.getAllByRole("radio");
-    expect(radios).toHaveLength(7);
+    expect(radios).toHaveLength(8);
+    expect(screen.getByRole("radio", { name: /GitHub Copilot/ })).toBeInTheDocument();
     const openrouter = screen.getByRole("radio", { name: /providers\.openrouter/ });
     expect(openrouter).toBeChecked();
     // OpenRouter config field (api key) is present.

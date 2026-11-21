@@ -621,6 +621,13 @@ class TestLLMEndpoints:
 
 
 # ── Resume tailoring: validation branch (no LLM / no tailoring invoked) ───────
+def test_applying_requires_a_job_specific_draft(auth_client):
+    assert not auth_client.post("/apply/start", json={}).json()["success"]
+    result = auth_client.post("/apply/start", json={"job_url": "https://example.com/job"}).json()
+    assert result["success"] is False
+    assert "tailored resume" in result["message"]
+
+
 class TestResumeTailor:
     def test_tailor_requires_job_urls(self, auth_client):
         resp = auth_client.post("/resume/tailor", json={})

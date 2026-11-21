@@ -220,8 +220,8 @@ All data is stored locally:
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
-| Rust | 1.77+ | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| Node.js | 20.19+ or 22.12+ (24 LTS works) | [nodejs.org](https://nodejs.org) |
+| Rust (native desktop build only) | 1.77+ | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
 | Python | 3.13+ | [python.org](https://python.org) |
 | uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
 
@@ -248,7 +248,42 @@ uv run python backend/main.py
 npm run dev
 ```
 
-Open http://localhost:1420, or run as a native desktop app instead:
+Open http://127.0.0.1:1420 in your browser.
+
+For **Windows browser development**, after installing dependencies, run this in PowerShell:
+
+```powershell
+.\scripts\start-local.ps1
+```
+
+Open **http://127.0.0.1:1420** once Vite is ready. Keep the terminal open;
+press Ctrl+C to stop. Backend output is in `logs/backend-stdout.log` and
+`logs/backend-stderr.log`. The launcher enables UTF-8 for Windows logs and disables
+browser-use telemetry. No `.env` file or API key is needed to open the setup screens.
+The Vite development proxy reads the backend's session token locally; the browser
+does not receive it. Both servers listen only on this computer.
+
+In browser mode, paste the **full PDF file path** into Resume PDF Path. The Browse
+button requires the native desktop app, and browser drag-and-drop supplies only a
+filename. Configure an LLM provider before using resume parsing or job automation.
+The Ollama provider accepts a base URL for a local or reachable remote Ollama server.
+The OpenAI-Compatible provider can connect to other local servers such as LM Studio.
+GitHub Copilot subscriptions are supported through the official Copilot SDK:
+install Copilot CLI, run `copilot update` and `copilot login`, then select
+**GitHub Copilot** in LLM Settings and use **Test Connection**. The default model
+is `auto`; you can enter another model available to your account. Requests count
+against your Copilot plan and model allowance. No separate API key is required.
+Profile text and browser screenshots supplied to the model go to Copilot.
+The adapter disables Copilot tools and uses a fresh session for each call.
+Copilot memory, cross-session retrieval, skills, agents, apps/MCP, custom
+instructions, repository hooks, and configuration discovery are explicitly
+disabled for these sessions. LangHire still supplies its own task context.
+ChatGPT subscription sign-in is not implemented.
+
+For backend tests on Windows, stop the app first (the API tests replace the session
+token during import), then run `$env:PYTHONUTF8='1'; uv run pytest`.
+
+For the native desktop app:
 
 ```bash
 # Terminal 2 (alternative) -- Native Tauri app

@@ -48,9 +48,10 @@ export interface CandidateProfile {
 }
 
 // ── LLM Settings ──────────────────────────────────────────────────────────
-export type LLMProvider = "openai" | "anthropic" | "gemini" | "bedrock" | "ollama" | "openrouter" | "openai_compatible";
+export type LLMProvider = "copilot" | "openai" | "anthropic" | "gemini" | "bedrock" | "ollama" | "openrouter" | "openai_compatible";
 
 export interface LLMSettings {
+  copilot?: { model: string };
   provider: LLMProvider;
   openai?: {
     api_key: string;
@@ -116,6 +117,7 @@ export interface Job {
   applied_at?: string;
   error?: string;
   description?: string;
+  skills_to_consider?: { skill: string; evidence: string; reason: string }[];
   tailored_resume_path?: string;
 }
 

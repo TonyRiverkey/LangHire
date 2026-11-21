@@ -14,6 +14,7 @@ import { cleanup } from "@testing-library/react";
 // api.ts does `invoke<string>("get_api_token")`; default to a dummy token so
 // the request helper doesn't throw. Individual tests can `vi.mocked(invoke)...`.
 vi.mock("@tauri-apps/api/core", () => ({
+  isTauri: vi.fn(() => true),
   invoke: vi.fn(async (cmd: string) => {
     if (cmd === "get_api_token") return "test-token";
     return undefined;

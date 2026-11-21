@@ -68,23 +68,11 @@ function loadTailorOptions(): TailorOptions {
   } catch {
     /* ignore */
   }
-  return { skills: true, title: false, overview: false, experience: false };
+  return { skills: true, title: false, overview: true, experience: false };
 }
 
 function saveTailorOptions(options: TailorOptions) {
   localStorage.setItem("langhire_tailor_options", JSON.stringify(options));
-}
-
-function loadAutoTailor(): boolean {
-  try {
-    return localStorage.getItem("langhire_auto_tailor") === "true";
-  } catch {
-    return false;
-  }
-}
-
-function saveAutoTailor(value: boolean) {
-  localStorage.setItem("langhire_auto_tailor", value ? "true" : "false");
 }
 
 export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
@@ -119,7 +107,6 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
 
   // Tailoring options panel state
   const [showTailorOptions, setShowTailorOptions] = useState(false);
-  const [autoTailor, setAutoTailor] = useState(loadAutoTailor);
   const [tailorOptions, setTailorOptions] = useState<TailorOptions>(loadTailorOptions);
 
   // Expanded job detail (resume preview + refine)
@@ -413,12 +400,6 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
   };
 
   // Tailoring options handlers
-  const handleAutoTailorToggle = () => {
-    const newVal = !autoTailor;
-    setAutoTailor(newVal);
-    saveAutoTailor(newVal);
-  };
-
   const handleTailorOptionChange = (key: keyof TailorOptions) => {
     const updated = { ...tailorOptions, [key]: !tailorOptions[key] };
     setTailorOptions(updated);
@@ -487,18 +468,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
         </button>
         {showTailorOptions && (
           <div className="mt-3 pt-3 border-t border-border">
-            {/* Auto-tailor toggle */}
-            <label className="flex items-center gap-2 mb-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoTailor}
-                onChange={handleAutoTailorToggle}
-                className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-              />
-              <span className="text-sm text-foreground">
-                Auto-tailor before applying
-              </span>
-            </label>
+            <p className="mb-3 text-sm text-muted-foreground">Generate and review a tailored resume for each job before applying.</p>
             {/* Tailor options checkboxes */}
             <div className="flex flex-wrap gap-4">
               {(
@@ -646,6 +616,19 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                           {job.company || t("jobItem.unknown")} ·{" "}
                           {job.location || "—"}
                         </p>
+                        {!!job.skills_to_consider?.length && (
+                          <details className="mt-2 text-sm text-muted-foreground">
+                            <summary className="cursor-pointer text-foreground">Skills to consider</summary>
+                            <ul className="mt-1 space-y-2">
+                              {job.skills_to_consider.map(({ skill, evidence, reason }) => (
+                                <li key={skill}>
+                                  <strong>{skill}</strong> — {reason}
+                                  <blockquote className="mt-0.5 pl-2 border-l border-border">“{evidence}”</blockquote>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
                         {job.error && (
                           <p
                             className="text-[13px] text-destructive mt-1 truncate"

@@ -768,6 +768,8 @@ async def start_collection(body: CollectRequest):
 
     if _collection_status["running"]:
         return {"success": False, "message": "Collection already running"}
+    if body.source != "linkedin":
+        return {"success": False, "message": "The built-in collector currently supports LinkedIn only."}
 
     # Kill any leftover browser processes from previous runs
     _kill_browser_processes()
@@ -816,13 +818,15 @@ async def start_collection(body: CollectRequest):
 
         # Phase 2: Fetch descriptions for collected jobs
         if not _collection_status.get("cancel_requested"):
+            from resume.skill_suggestions import suggest_skills
+            from core.shared_config import update_job as _upd
             jobs = read_jobs()
             needs_desc = [
                 (url, j) for url, j in jobs.items()
-                if j.get("status") == "pending" and not j.get("description")
+                if j.get("status") == "pending" and "skills_to_consider" not in j
             ]
             if needs_desc:
-                print(f"\n📋 Fetching descriptions for {len(needs_desc)} jobs...")
+                print(f"\n📋 Reviewing descriptions and skills for {len(needs_desc)} jobs...")
                 for i, (url, job) in enumerate(needs_desc):
                     if _collection_status.get("cancel_requested"):
                         print("🛑 Stop requested — halting description fetch")
@@ -831,10 +835,11 @@ async def start_collection(body: CollectRequest):
                     company = job.get("company", "Unknown")
                     print(f"  [{i+1}/{len(needs_desc)}] {job_title} at {company}...")
                     try:
-                        desc = await collect_jobs.fetch_description_for_job(url, job)
+                        desc = job.get("description") or await collect_jobs.fetch_description_for_job(url, job)
                         if desc:
-                            from core.shared_config import update_job as _upd
                             _upd(url, description=desc)
+                            suggestions = await suggest_skills(desc, profile.get("skills", []), llm_settings)
+                            _upd(url, skills_to_consider=suggestions)
                             print(f"    ✅ Got description ({len(desc)} chars)")
                         else:
                             print(f"    ⚠️  No description extracted")
@@ -890,6 +895,16 @@ async def start_applying(body: ApplyRequest):
 
     if _apply_status["running"]:
         return {"success": False, "message": "Application already running"}
+
+    from resume.tailor import verified_tailored_path
+    selected = [body.job_url] if body.job_url else body.job_urls
+    if not selected:
+        return {"success": False, "message": "Select specific jobs and review their tailored resumes before applying."}
+    saved_jobs = _load_jobs()
+    for url in selected:
+        job = saved_jobs.get(url)
+        if not job or not verified_tailored_path({**job, "url": url}):
+            return {"success": False, "message": "Generate and review a tailored resume from the job description for each selected job before applying."}
 
     # Kill any leftover browser processes from previous runs
     _kill_browser_processes()
@@ -1547,6 +1562,8 @@ async def get_setup_status():
     profile_done = bool(profile.get("name", "").strip())
     llm_done = False
     provider = llm.get("provider", "")
+    if provider == "copilot":
+        llm_done = bool((llm.get("copilot") or {}).get("model", "").strip())
     if provider == "openai":
         llm_done = bool((llm.get("openai") or {}).get("api_key", "").strip())
     elif provider == "anthropic":
@@ -1771,7 +1788,7 @@ async def smart_squash_qa():
 @app.post("/resume/tailor")
 async def tailor_resumes(body: dict):
     """Generate tailored resumes for one or more jobs."""
-    from resume.tailor import tailor_resume
+    from resume.tailor import tailor_resume, tailoring_fingerprint
     from core.shared_config import read_jobs, update_job
 
     job_urls = body.get("job_urls", [])
@@ -1789,18 +1806,13 @@ async def tailor_resumes(body: dict):
             results.append({"url": url, "status": "error", "message": "Job not found"})
             continue
         description = job.get("description", "")
-        if not description:
-            # Fallback: use title + company + location as context for tailoring
-            title = job.get("title", "")
-            company = job.get("company", "")
-            location = job.get("location", "")
-            if not title:
-                results.append({"url": url, "status": "error", "message": "No job description or title available"})
-                continue
-            description = f"Job Title: {title}\nCompany: {company}\nLocation: {location}\n\nTailor the resume for this role based on the job title and company."
+        if not description.strip():
+            results.append({"url": url, "status": "error", "message": "Collect the full job description before tailoring."})
+            continue
         try:
             result = await tailor_resume(url, description, options)
-            update_job(url, tailored_resume_path=result["path"])
+            update_job(url, tailored_resume_path=result["path"],
+                       tailoring_fingerprint=tailoring_fingerprint(description, result["path"]))
             results.append({"url": url, "status": "done", "path": result["path"], "content": result["content"]})
         except Exception as e:
             results.append({"url": url, "status": "error", "message": str(e)})
@@ -1811,7 +1823,7 @@ async def tailor_resumes(body: dict):
 @app.post("/resume/tailor/refine")
 async def refine_tailored_resume(body: dict):
     """Refine an existing tailored resume with additional instructions."""
-    from resume.tailor import tailor_resume
+    from resume.tailor import refine_resume, tailoring_fingerprint
     from core.shared_config import read_jobs, update_job
 
     job_url = body.get("job_url", "")
@@ -1826,11 +1838,14 @@ async def refine_tailored_resume(body: dict):
         return _api_error("not_found", "Job not found", 404)
 
     description = job.get("description", "")
+    if not description.strip():
+        return _api_error("missing_description", "Collect the full job description before tailoring.", 400)
     options = body.get("options", {"skills": True, "overview": True, "experience": True, "title": False})
 
     try:
-        result = await tailor_resume(job_url, description + f"\n\nADDITIONAL INSTRUCTION: {instruction}", options)
-        update_job(job_url, tailored_resume_path=result["path"])
+        result = await refine_resume(job_url, description, instruction, options)
+        update_job(job_url, tailored_resume_path=result["path"],
+                   tailoring_fingerprint=tailoring_fingerprint(description, result["path"]))
         return {"success": True, "content": result["content"], "path": result["path"]}
     except Exception as e:
         return _api_error("tailor_error", str(e), 500)

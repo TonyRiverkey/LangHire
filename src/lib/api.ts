@@ -2,7 +2,7 @@
  * API client for communicating with the Python backend sidecar.
  * The backend runs as a local FastAPI server on a dynamic port.
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   CandidateProfile,
   LLMSettings,
@@ -33,10 +33,13 @@ export function setBackendPort(port: number) {
 }
 
 function getBaseUrl(): string {
+  if (import.meta.env.DEV && !isTauri()) return "/api";
   return `http://127.0.0.1:${backendPort}`;
 }
 
 async function getToken(): Promise<string> {
+  // The local Vite proxy supplies authentication in browser development mode.
+  if (import.meta.env.DEV && !isTauri()) return "";
   if (!tokenPromise) {
     tokenPromise = invoke<string>("get_api_token").catch((e) => {
       tokenPromise = null;
@@ -57,7 +60,7 @@ async function request<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });

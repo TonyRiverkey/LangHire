@@ -103,7 +103,7 @@ async def save_new_qa(new_questions: dict, source_domain: str = ""):
             save_json(QA_FILE, qa)
 
 
-async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[str], easy_apply: bool, worker_id: int, resume_path_override: str | None = None) -> str:
+async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[str], easy_apply: bool, worker_id: int, resume_path_override: str | None = None, *, require_tailoring: bool = False) -> str:
     """Apply to a single job. Returns final status."""
     url = job["url"]
     title = job.get("title", "Unknown")
@@ -119,6 +119,13 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
         await save_job_status(url, "blocked", "Blocked domain")
         print(f"  🚫 [W{worker_id}] Blocked: {title} at {company}")
         return "blocked"
+
+    if require_tailoring:
+        from resume.tailor import verified_tailored_path
+        resume_path_override = verified_tailored_path(job)
+        if not resume_path_override:
+            print(f"Skipping {title}: generate and review a tailored resume first.")
+            return "skipped"
 
     if not claim_job(url):
         print(f"  ⏭️  [W{worker_id}] Skipped (already claimed): {title} at {company}")
@@ -141,14 +148,14 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
     resume_path = resume_path_override or RESUME_PATH
 
     # Use tailored resume if available for this job
-    try:
-        from resume.tailor import get_tailored_resume_path
-        tailored_path = get_tailored_resume_path(url)
-        if tailored_path:
-            resume_path = tailored_path
-            print(f"  📄 [W{worker_id}] Using tailored resume: {tailored_path}")
-    except ImportError:
-        pass
+    if not require_tailoring:
+        try:
+            from resume.tailor import get_tailored_resume_path
+            tailored_path = get_tailored_resume_path(url)
+            if tailored_path:
+                resume_path = tailored_path
+        except ImportError:
+            pass
 
     # Profile email is for application forms; credentials email/password are for ATS login
     agent_sensitive_data = {
@@ -371,7 +378,8 @@ async def worker(name: str, worker_id: int, queue: asyncio.Queue, profile: dict,
             break
 
         job_easy_apply = job.get("easy_apply", easy_apply) if job.get("easy_apply") is not None else easy_apply
-        status = await apply_to_job(job, profile, qa, applied_labels, job_easy_apply, worker_id)
+        status = await apply_to_job(job, profile, qa, applied_labels, job_easy_apply, worker_id,
+                                    require_tailoring=cancel_flag is not None)
         stats[status] = stats.get(status, 0) + 1
 
         # On retry, put back in queue

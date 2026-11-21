@@ -50,6 +50,22 @@ afterEach(() => {
 });
 
 describe("api — base url & port", () => {
+  it("uses the local proxy without reading or exposing a token in browser development", async () => {
+    const api = await loadApi();
+    const core = await import("@tauri-apps/api/core");
+    vi.stubEnv("DEV", true);
+    vi.mocked(core.isTauri).mockReturnValueOnce(false).mockReturnValueOnce(false);
+    try {
+      await api.getProfile();
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/profile");
+      expect(core.invoke).not.toHaveBeenCalled();
+      const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers;
+      expect(headers).not.toHaveProperty("Authorization");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("defaults to port 8743", async () => {
     const api = await loadApi();
     await api.checkHealth();

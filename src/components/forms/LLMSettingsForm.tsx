@@ -6,6 +6,7 @@ import type { LLMProvider, LLMSettings } from "../../lib/types";
 import { useTranslation } from "react-i18next";
 
 const PROVIDERS: { id: LLMProvider; nameKey: string; descKey: string }[] = [
+  { id: "copilot", nameKey: "GitHub Copilot", descKey: "Use your Copilot subscription through Copilot CLI. No API key needed." },
   { id: "openrouter", nameKey: "providers.openrouter.name", descKey: "providers.openrouter.description" },
   { id: "openai", nameKey: "providers.openai.name", descKey: "providers.openai.description" },
   { id: "anthropic", nameKey: "providers.anthropic.name", descKey: "providers.anthropic.description" },
@@ -43,6 +44,7 @@ const BEDROCK_MODELS = [
 ];
 
 const defaultSettings: LLMSettings = {
+  copilot: { model: "auto" },
   provider: "openrouter",
   openai: { api_key: "", model: "gpt-4o" },
   anthropic: { api_key: "", model: "claude-sonnet-4-5" },
@@ -56,6 +58,7 @@ const defaultSettings: LLMSettings = {
 const OR_CUSTOM = "__custom__";
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  copilot: "GitHub Copilot",
   openai: "OpenAI",
   anthropic: "Anthropic",
   gemini: "Google Gemini",
@@ -562,6 +565,18 @@ export default function LLMSettingsForm({ onSaved, compact }: LLMSettingsFormPro
                 <a href="https://openrouter.ai/models" target="_blank" rel="noopener noreferrer" className="text-primary font-semibold hover:underline">openrouter.ai/models</a>
               </p>
             </div>
+          </div>
+        )}
+
+        {settings.provider === "copilot" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Sign in once by running <code>copilot login</code> in a terminal, then use Test Connection. Requests count against your Copilot plan and model allowance. Browser screenshots and supplied profile content are sent to Copilot when automation runs.</p>
+            <label className="block text-sm font-semibold">Copilot model
+              <input className="input-base mt-2" value={settings.copilot?.model || "auto"} onChange={(e) => {
+                const next = { ...settings, copilot: { model: e.target.value } };
+                setSettings(next); autoSave(next);
+              }} />
+            </label>
           </div>
         )}
 

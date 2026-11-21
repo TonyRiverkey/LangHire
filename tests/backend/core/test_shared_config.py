@@ -358,6 +358,13 @@ def test_build_memory_context_no_salary(base_profile, no_op_store):
     assert "Salary: Not specified" in ctx
 
 
+def test_build_memory_context_minimum_only_salary(base_profile, no_op_store):
+    base_profile["salary_expectation"] = {"min": 50000, "max": 0, "currency": "USD", "period": "annual"}
+    ctx = sc.build_memory_context(base_profile, qa={})
+    assert "USD 50,000 minimum (annual); no maximum specified" in ctx
+    assert "50,000-0" not in ctx
+
+
 def test_build_memory_context_default_date_format(base_profile, no_op_store):
     """A blank date_format falls back to MM/DD/YYYY."""
     base_profile["date_format"] = ""

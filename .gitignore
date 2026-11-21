@@ -59,6 +59,8 @@ Thumbs.db
 .env
 .env.local
 .env.production
+llm_settings.json
+.api_token
 
 # ── PyInstaller ───────────────────────────────────────────────────────────
 build/
