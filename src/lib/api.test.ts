@@ -470,3 +470,15 @@ describe("api — getChromiumStatus (bypasses request helper)", () => {
     expect(fetchMock.mock.calls.at(-1)![1]).toBeUndefined();
   });
 });
+
+it("uploads resume bytes with PDF content type and existing authentication", async () => {
+  const api = await loadApi();
+  const file = new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" });
+  fetchMock.mockResolvedValueOnce(jsonResponse({ resume_path: "/stored/resume.pdf" }));
+  expect(await api.uploadResume(file)).toEqual({ resume_path: "/stored/resume.pdf" });
+  expect(fetchMock).toHaveBeenCalledWith(`${DEFAULT_BASE}/resume/upload`, expect.objectContaining({
+    method: "POST",
+    body: file,
+    headers: expect.objectContaining({ "Content-Type": "application/pdf", Authorization: "Bearer test-token" }),
+  }));
+});

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { FolderOpen, CheckCircle, Loader2, Upload } from "lucide-react";
-import { getSettings, saveSettings } from "../../lib/api";
+import { getSettings, saveSettings, uploadResume } from "../../lib/api";
 import { open } from "@tauri-apps/plugin-dialog";
+import { isTauri } from "@tauri-apps/api/core";
 
 interface ResumePickerFormProps {
   onSaved?: () => void;
@@ -19,6 +20,7 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
   const [dropError, setDropError] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef("");
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getSettings()
@@ -45,25 +47,58 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onSaved?.();
-    } catch { /* silent */ }
+    } catch { setDropError("Could not save the resume selection. Please try again."); }
     finally { setSaving(false); }
   };
 
   const handleChange = (path: string) => {
     setResumePath(path);
     setSaved(false);
+    setDropError("");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => doSave(path), 800);
   };
 
   const handleBrowse = async () => {
+    setDropError("");
+    if (!isTauri()) {
+      fileInput.current?.click();
+      return;
+    }
     try {
       const file = await open({ filters: [{ name: "PDF", extensions: ["pdf"] }] });
       if (file) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        setSaved(false);
         setResumePath(file as string);
         doSave(file as string); // Save immediately on browse
       }
-    } catch { /* Dialog cancelled */ }
+    } catch { setDropError("Could not open the file picker. Please try again."); }
+  };
+
+  const handleFile = async (file: File) => {
+    if (!isPdf(file.name, file.type)) {
+      setDropError("Only PDF files are supported. Please select a .pdf resume.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setDropError("Resume must be 10 MB or smaller.");
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setDropError("");
+    setSaved(false);
+    setSaving(true);
+    try {
+      const path = (file as File & { path?: string }).path
+        || (await uploadResume(file)).resume_path;
+      setResumePath(path);
+      await doSave(path);
+    } catch {
+      setDropError("Could not upload the resume. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -95,23 +130,25 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
       setDropError("No file detected. Please drop a PDF resume.");
       return;
     }
-    if (!isPdf(file.name, file.type)) {
-      setDropError("Only PDF files are supported. Please drop a .pdf resume.");
-      return;
-    }
-    setDropError("");
-    // In the Tauri desktop webview the dropped File exposes a real filesystem
-    // path; in the browser only the file name is available. The backend stores
-    // a path string (resume_path), so use the best identifier we have.
-    const path = (file as File & { path?: string }).path || file.name;
-    setResumePath(path);
-    doSave(path);
+    void handleFile(file);
   };
 
   if (loading) return <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-2">
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".pdf,application/pdf"
+        aria-label="Choose a PDF resume"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void handleFile(file);
+        }}
+      />
       <label className="block text-sm font-medium text-foreground">Resume PDF Path</label>
       <div className="flex gap-2">
         <input

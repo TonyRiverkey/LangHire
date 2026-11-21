@@ -263,9 +263,10 @@ browser-use telemetry. No `.env` file or API key is needed to open the setup scr
 The Vite development proxy reads the backend's session token locally; the browser
 does not receive it. Both servers listen only on this computer.
 
-In browser mode, paste the **full PDF file path** into Resume PDF Path. The Browse
-button requires the native desktop app, and browser drag-and-drop supplies only a
-filename. Configure an LLM provider before using resume parsing or job automation.
+In browser mode, use **Browse** or drag and drop a PDF resume (up to 10 MB).
+LangHire saves a local copy in its app data folder. You can also paste the
+**full PDF file path** into Resume PDF Path. Configure an LLM provider before
+using resume parsing or job automation.
 The Ollama provider accepts a base URL for a local or reachable remote Ollama server.
 The OpenAI-Compatible provider can connect to other local servers such as LM Studio.
 GitHub Copilot subscriptions are supported through the official Copilot SDK:

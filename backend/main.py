@@ -26,6 +26,7 @@ except ImportError:
 
 from core.config import get_data_dir, load_settings, save_settings, load_profile, save_profile
 from core.config import load_llm_settings, save_llm_settings
+from core.resume_upload import upload_resume
 
 # Project root for data files
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -71,6 +72,7 @@ async def lifespan(app: FastAPI):
     _kill_browser_processes()
 
 app = FastAPI(title="LangHire Backend", version="1.0.0", lifespan=lifespan)
+app.post("/resume/upload")(upload_resume)
 
 # ── Auth token (generated per-session, written to data dir for frontend) ──
 import secrets as _secrets

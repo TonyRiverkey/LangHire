@@ -96,6 +96,14 @@ export async function getChromiumStatus() {
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────
+export async function uploadResume(file: File) {
+  return request<{ resume_path: string }>("/resume/upload", {
+    method: "POST",
+    headers: { "Content-Type": "application/pdf" },
+    body: file,
+  });
+}
+
 export async function getProfile() {
   return request<CandidateProfile>("/profile");
 }
