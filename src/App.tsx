@@ -63,7 +63,7 @@ export default function App() {
           const status = await getSetupStatus();
           if (!cancelled) {
             measureAndTrack("backend_startup");
-            if (!status.onboarding_completed) {
+            if (!status.onboarding_completed && !(status.profile && status.llm && status.resume)) {
               setShowWizard(true);
             }
             setWizardChecked(true);

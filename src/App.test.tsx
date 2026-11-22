@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import App from "./App";
@@ -131,10 +131,11 @@ describe("App", () => {
     expect(screen.queryByTestId("setup-wizard")).not.toBeInTheDocument();
   });
 
-  it("shows the setup wizard when onboarding is NOT completed", async () => {
+  it.each(["profile", "llm", "resume"])("shows setup when %s is missing and onboarding is not completed", async (field) => {
     mockGetSetupStatus.mockResolvedValue({
       ...completedStatus,
       onboarding_completed: false,
+      [field]: false,
     } as never);
     renderApp(["/"]);
     expect(await screen.findByTestId("setup-wizard")).toBeInTheDocument();
@@ -144,6 +145,7 @@ describe("App", () => {
     mockGetSetupStatus.mockResolvedValue({
       ...completedStatus,
       onboarding_completed: false,
+      profile: false,
     } as never);
     const user = userEvent.setup();
     renderApp(["/"]);
@@ -154,13 +156,29 @@ describe("App", () => {
     expect(screen.queryByTestId("setup-wizard")).not.toBeInTheDocument();
   });
 
+  it("does not reopen setup for a configured profile even without platform logins or the completion flag", async () => {
+    mockGetSetupStatus.mockResolvedValue({
+      ...completedStatus,
+      onboarding_completed: false,
+      linkedin: false,
+      gmail: false,
+      all_required_done: false,
+    } as never);
+    renderApp(["/"]);
+    await screen.findByText("Dashboard Page");
+    await waitFor(() => expect(mockGetSetupStatus).toHaveBeenCalled());
+    expect(screen.queryByTestId("setup-wizard")).not.toBeInTheDocument();
+    act(() => { window.dispatchEvent(new Event("open-setup-wizard")); });
+    expect(await screen.findByTestId("setup-wizard")).toBeInTheDocument();
+  });
+
   it("opens the wizard on the 'open-setup-wizard' window event", async () => {
     renderApp(["/"]);
     await screen.findByText("Dashboard Page");
     await waitFor(() => expect(mockGetSetupStatus).toHaveBeenCalled());
     expect(screen.queryByTestId("setup-wizard")).not.toBeInTheDocument();
 
-    window.dispatchEvent(new Event("open-setup-wizard"));
+    act(() => { window.dispatchEvent(new Event("open-setup-wizard")); });
     expect(await screen.findByTestId("setup-wizard")).toBeInTheDocument();
   });
 
