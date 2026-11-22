@@ -139,6 +139,20 @@ describe("PendingTab", () => {
     mockGetTailoredResumeContent.mockResolvedValue({ success: true, content: "Resume body", path: "/x" } as never);
   });
 
+  it("shows source salary, profile questions and application document instructions", async () => {
+    mockGetJobs.mockResolvedValue([{ ...pendingJob, salary: "CAD 90,000 per year", fit_review: {
+      role_fit: "relevant", role_reason: "Advising leaders matches the target role.", salary_fit: "within_target",
+      profile_questions: [{ topic: "Leadership", evidence: "Supervise one HR employee", question: "Have you supervised HR staff?" }],
+      cover_letter_instructions: "Combine cover letter and resume into one PDF.",
+    } }] as never);
+    render(<PendingTab onJobsChanged={onJobsChanged} stats={stats} />);
+    expect(await screen.findByText("CAD 90,000 per year")).toBeInTheDocument();
+    expect(screen.getByText("Fit review and profile questions")).toBeInTheDocument();
+    expect(screen.getByText(/Have you supervised HR staff/)).toBeInTheDocument();
+    expect(screen.getByText(/Combine cover letter and resume into one PDF/)).toBeInTheDocument();
+    expect(mockSaveProfile).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -264,8 +278,8 @@ describe("PendingTab", () => {
   it("shows salary under each job and labels missing ranges", async () => {
     mockGetJobs.mockResolvedValue([{ ...pendingJob, salary: "CAD 80,000–105,000/year" }, tailoredJob] as never);
     render(<PendingTab onJobsChanged={onJobsChanged} stats={stats} />);
-    expect(await screen.findByText("Salary: CAD 80,000–105,000/year")).toBeInTheDocument();
-    expect(screen.getByText("Salary: Not stated")).toBeInTheDocument();
+    expect((await screen.findByText("CAD 80,000–105,000/year")).closest("p")).toHaveTextContent("Salary: CAD 80,000–105,000/year");
+    expect(screen.getByText("Not stated").closest("p")).toHaveTextContent("Salary: Not stated");
   });
 
   it("expands a tailored job, loads content, and refines it", async () => {

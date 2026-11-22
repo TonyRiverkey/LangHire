@@ -117,6 +117,14 @@ export interface Job {
   applied_at?: string;
   error?: string;
   description?: string;
+  salary?: string;
+  fit_review?: {
+    role_fit: "relevant" | "unrelated" | "uncertain";
+    role_reason: string;
+    salary_fit: "unknown" | "within_target" | "overlaps_target" | "at_or_below_minimum";
+    profile_questions: { topic: string; evidence: string; question: string }[];
+    cover_letter_instructions: string;
+  };
   skills_to_consider?: { skill: string; evidence: string; reason: string }[];
   tailored_resume_path?: string;
 }
@@ -267,6 +275,13 @@ export interface CollectionStatus {
   max_jobs: number;
   error: string | null;
   finished_at: string | null;
+  report?: CollectionReport | null;
+}
+
+export interface CollectionReport {
+  status: "running" | "complete" | "partial" | "failed" | "cancelled";
+  locations: { title: string; location: string; saved: number; skipped: number; status: string; reason: string }[];
+  error?: string | null;
 }
 
 export interface ApplyStatus {
