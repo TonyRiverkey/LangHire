@@ -49,7 +49,7 @@ async function getToken(): Promise<string> {
   return tokenPromise;
 }
 
-async function request<T>(
+export async function request<T>(
   path: string,
   options: RequestInit = {},
   _retried = false
@@ -86,6 +86,15 @@ async function request<T>(
 }
 
 // ── Health ────────────────────────────────────────────────────────────────
+export async function getApplicationPdf(asset: string) {
+  const token = await getToken();
+  const response = await fetch(`${getBaseUrl()}/application-documents/file/${asset.split("/").map(encodeURIComponent).join("/")}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("Could not open the PDF. Please prepare the documents again.");
+  return response.blob();
+}
+
 export async function checkHealth() {
   return request<HealthResponse>("/health");
 }

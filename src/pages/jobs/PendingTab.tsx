@@ -10,9 +10,6 @@ import {
   Ban,
   Play,
   FileText,
-  X,
-  Copy,
-  Save,
   MoreVertical,
   Trash2,
   CheckSquare,
@@ -26,9 +23,6 @@ import {
   getJobs,
   startApplying,
   getApplyStatus,
-  generateCoverLetter,
-  saveProfile,
-  getProfile,
   updateJobStatus,
   deleteJobs,
   tailorResumes,
@@ -38,6 +32,8 @@ import {
 import { markStart, measureAndTrack } from "../../lib/perf";
 import type { Job, JobStatus, JobStats, TailorOptions } from "../../lib/types";
 import AutomationDialog from "../../components/AutomationDialog";
+import ApplicationDocuments from "../../components/ApplicationDocuments";
+import MainResumeImprover from "../../components/MainResumeImprover";
 import { useTranslation } from "react-i18next";
 
 const STATUS_ICONS: Record<JobStatus, typeof CheckCircle> = {
@@ -87,14 +83,6 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
   const [applyingUrl, setApplyingUrl] = useState<string | null>(null);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingApplyUrl, setPendingApplyUrl] = useState<string | null>(null);
-
-  // Cover letter state
-  const [coverLetterJob, setCoverLetterJob] = useState<Job | null>(null);
-  const [generatedLetter, setGeneratedLetter] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-  const [manualDescription, setManualDescription] = useState("");
-  const [letterSaved, setLetterSaved] = useState(false);
 
   // Multi-select state
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
@@ -235,64 +223,6 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
       alert(e instanceof Error ? e.message : "Failed to start");
     } finally {
       setPendingApplyUrl(null);
-    }
-  };
-
-  const handleGenerateCoverLetter = async (job: Job) => {
-    setCoverLetterJob(job);
-    setGeneratedLetter("");
-    setGenerateError(null);
-    setLetterSaved(false);
-    setManualDescription("");
-
-    const description = job.description;
-    if (!description) return;
-
-    setGenerating(true);
-    try {
-      const res = await generateCoverLetter(description, job.title, job.company);
-      if (res.success) {
-        setGeneratedLetter(res.cover_letter);
-      } else {
-        setGenerateError(t("coverLetterModal.failedGenerate"));
-      }
-    } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleGenerateFromManual = async () => {
-    if (!manualDescription.trim() || !coverLetterJob) return;
-    setGenerating(true);
-    setGenerateError(null);
-    try {
-      const res = await generateCoverLetter(
-        manualDescription,
-        coverLetterJob.title,
-        coverLetterJob.company
-      );
-      if (res.success) {
-        setGeneratedLetter(res.cover_letter);
-      } else {
-        setGenerateError(t("coverLetterModal.failedGenerate"));
-      }
-    } catch (e) {
-      setGenerateError(e instanceof Error ? e.message : "Generation failed");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleSaveCoverLetter = async () => {
-    try {
-      const profile = await getProfile();
-      await saveProfile({ ...profile, cover_letter: generatedLetter });
-      setLetterSaved(true);
-      setTimeout(() => setLetterSaved(false), 3000);
-    } catch {
-      setGenerateError(t("coverLetterModal.failedSave"));
     }
   };
 
@@ -616,6 +546,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                           {job.company || t("jobItem.unknown")} ·{" "}
                           {job.location || "—"}
                         </p>
+                        <p className="text-sm mt-1 text-foreground">Salary: {(job as Job & { salary?: string }).salary || "Not stated"}</p>
                         {!!job.skills_to_consider?.length && (
                           <details className="mt-2 text-sm text-muted-foreground">
                             <summary className="cursor-pointer text-foreground">Skills to consider</summary>
@@ -629,6 +560,8 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                             </ul>
                           </details>
                         )}
+                        <MainResumeImprover jobUrl={job.url} skills={job.skills_to_consider || []} />
+                        <ApplicationDocuments jobUrl={job.url} />
                         {job.error && (
                           <p
                             className="text-[13px] text-destructive mt-1 truncate"
@@ -673,13 +606,6 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                       </span>
                       {(job.status === "pending" || job.status === "failed") && (
                         <>
-                          <button
-                            onClick={() => handleGenerateCoverLetter(job)}
-                            title={t("jobItem.coverLetterTitle")}
-                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold border border-border text-foreground hover:bg-secondary transition-all"
-                          >
-                            <FileText className="w-3 h-3" /> {t("jobItem.coverLetter")}
-                          </button>
                           <button
                             onClick={() => handleApplySingle(job.url)}
                             disabled={applyingUrl !== null}
@@ -912,119 +838,6 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
         }}
       />
 
-      {/* Cover Letter Modal */}
-      {coverLetterJob && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setCoverLetterJob(null)}
-        >
-          <div
-            className="bg-card rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-5 border-b border-border">
-              <div>
-                <h3 className="text-base font-semibold text-foreground">
-                  {t("coverLetterModal.title")}
-                </h3>
-                <p className="text-[13px] text-muted-foreground mt-0.5">
-                  {t("coverLetterModal.jobAt", {
-                    title: coverLetterJob.title,
-                    company: coverLetterJob.company,
-                  })}
-                </p>
-              </div>
-              <button
-                onClick={() => setCoverLetterJob(null)}
-                className="p-1.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-5">
-              {!coverLetterJob.description &&
-                !generatedLetter &&
-                !generating && (
-                  <div className="mb-4">
-                    <p className="text-sm text-muted-foreground mb-2">
-                      {t("coverLetterModal.noDescription")}
-                    </p>
-                    <textarea
-                      value={manualDescription}
-                      onChange={(e) => setManualDescription(e.target.value)}
-                      rows={6}
-                      className="input-base mb-3"
-                      placeholder={t("coverLetterModal.pastePlaceholder")}
-                    />
-                    <button
-                      onClick={handleGenerateFromManual}
-                      disabled={!manualDescription.trim() || generating}
-                      className="btn-primary"
-                    >
-                      <FileText className="w-4 h-4" />
-                      {t("coverLetterModal.generate")}
-                    </button>
-                  </div>
-                )}
-
-              {generating && (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="w-6 h-6 animate-spin text-primary mr-3" />
-                  <span className="text-sm text-muted-foreground">
-                    {t("coverLetterModal.generating")}
-                  </span>
-                </div>
-              )}
-
-              {generateError && !generating && (
-                <div className="error-banner mb-4">
-                  {generateError}
-                  <button
-                    onClick={() => setGenerateError(null)}
-                    className="ml-2 underline text-sm"
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              )}
-
-              {generatedLetter && (
-                <div>
-                  <label className="block text-sm font-semibold text-foreground mb-1.5">
-                    {t("coverLetterModal.generatedLabel")}
-                  </label>
-                  <textarea
-                    value={generatedLetter}
-                    onChange={(e) => setGeneratedLetter(e.target.value)}
-                    rows={12}
-                    className="input-base font-[inherit] text-sm leading-relaxed"
-                  />
-                </div>
-              )}
-            </div>
-
-            {generatedLetter && (
-              <div className="flex items-center justify-between p-5 border-t border-border bg-secondary/30">
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(generatedLetter);
-                  }}
-                  className="btn-secondary"
-                >
-                  <Copy className="w-4 h-4" /> {t("coverLetterModal.copy")}
-                </button>
-                <button onClick={handleSaveCoverLetter} className="btn-primary">
-                  <Save className="w-4 h-4" />{" "}
-                  {letterSaved
-                    ? t("coverLetterModal.saved")
-                    : t("coverLetterModal.saveToProfile")}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

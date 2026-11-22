@@ -25,6 +25,7 @@ import {
 } from "../../lib/api";
 import { trackEvent } from "../../lib/analytics";
 import LogLine from "../../components/LogLine";
+import ApplicationDocuments from "../../components/ApplicationDocuments";
 import { useTranslation } from "react-i18next";
 import type { Job, RunMetric, AppSettings } from "../../lib/types";
 
@@ -397,6 +398,8 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
                             </div>
                           )}
                         </div>
+
+                        <ApplicationDocuments jobUrl={row.job.url} historyOnly />
 
                         {/* Right column — metrics */}
                         {row.metric && (

@@ -78,6 +78,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LangHire Backend", version="1.0.0", lifespan=lifespan)
 app.post("/resume/upload")(upload_resume)
+from resume.application_documents import router as application_documents_router
+from resume.main_resume import router as main_resume_router
+app.include_router(application_documents_router)
+app.include_router(main_resume_router)
 
 # ── Auth token (generated per-session, written to data dir for frontend) ──
 import secrets as _secrets
@@ -912,6 +916,11 @@ async def start_applying(body: ApplyRequest):
         job = saved_jobs.get(url)
         if not job or not verified_tailored_path({**job, "url": url}):
             return {"success": False, "message": "Generate and review a tailored resume from the job description for each selected job before applying."}
+        from resume.application_documents import validated_documents
+        try:
+            validated_documents({**job, "url": url})
+        except (ValueError, OSError) as error:
+            return {"success": False, "message": str(error)}
 
     # Kill any leftover browser processes from previous runs
     _kill_browser_processes()
@@ -1792,7 +1801,7 @@ async def generate_cover_letter(body: dict):
         from browser_use.llm.messages import UserMessage
         llm = create_llm(llm_settings)
         response = await llm.ainvoke([UserMessage(content=prompt)])
-        text = response.content if hasattr(response, "content") else str(response)
+        text = response.completion if hasattr(response, "completion") else (response.content if hasattr(response, "content") else str(response))
         return {"success": True, "cover_letter": text.strip()}
     except Exception as e:
         return _api_error("llm_error", f"Cover letter generation failed: {str(e)}", 500)

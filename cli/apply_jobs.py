@@ -120,16 +120,24 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
         print(f"  🚫 [W{worker_id}] Blocked: {title} at {company}")
         return "blocked"
 
-    if require_tailoring:
-        from resume.tailor import verified_tailored_path
-        resume_path_override = verified_tailored_path(job)
-        if not resume_path_override:
-            print(f"Skipping {title}: generate and review a tailored resume first.")
-            return "skipped"
+    from resume.application_documents import validated_documents, start_attempt, finish_attempt
+    try:
+        documents = validated_documents(job)
+    except (ValueError, OSError) as error:
+        print(f"Skipping {title}: {error}")
+        return "skipped"
 
     if not claim_job(url):
         print(f"  ⏭️  [W{worker_id}] Skipped (already claimed): {title} at {company}")
         return "skipped"
+
+    try:
+        attempt, resume_path_override, provided_files = start_attempt(job)
+    except (ValueError, OSError) as error:
+        await save_job_status(url, "pending", str(error))
+        return "skipped"
+    documents = attempt
+    profile = {**profile, "cover_letter": documents.get("letter", "")}
 
     # Always refresh credentials before each job to avoid mid-run expiry
     refresh_credentials()
@@ -145,19 +153,15 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
     memory = build_memory_context(profile, qa, applied_labels, job_url=url)
     run_started_at = datetime.now(timezone.utc)
 
-    resume_path = resume_path_override or RESUME_PATH
-
-    # Use tailored resume if available for this job
-    if not require_tailoring:
-        try:
-            from resume.tailor import get_tailored_resume_path
-            tailored_path = get_tailored_resume_path(url)
-            if tailored_path:
-                resume_path = tailored_path
-        except ImportError:
-            pass
+    resume_path = resume_path_override
 
     # Profile email is for application forms; credentials email/password are for ATS login
+    memory += (f"\nAPPLICATION DOCUMENTS: Use only these reviewed files: {provided_files}. "
+               f"Document format: {documents['mode']}. Primary upload file: {resume_path}. "
+               "For separate files, upload the cover-letter PDF only to the cover-letter field; use the job-specific letter text for text fields. "
+               "For combined format, upload the combined PDF containing the cover letter first and resume second. "
+               "If the employer requests a missing letter, a different document format, or changed document content, STOP without submitting "
+               "and report the requirement so the user can prepare and review new files. Never reuse another job's letter or generate an unreviewed attachment.")
     agent_sensitive_data = {
         "email": profile.get("email", "").strip(),
         "account_email": SENSITIVE_DATA.get("email", "").strip(),
@@ -263,7 +267,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
         browser_session=browser,
         sensitive_data=agent_sensitive_data,
         extend_system_message=memory,
-        available_file_paths=[resume_path],
+        available_file_paths=provided_files,
         save_conversation_path=str(LOGS_DIR / f"apply_{company.replace(' ', '_')}_{title.replace(' ', '_')[:30]}"),
         calculate_cost=True,
         register_new_step_callback=_on_step_with_limit,
@@ -287,6 +291,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
 
         # Determine success/failure
         success = result.is_successful()
+        finish_attempt(url, attempt["id"], "applied" if success else "failed")
 
         # ── Memory extraction (self-learning) ─────────────────────────────
         mem_store = get_memory_store()
@@ -351,6 +356,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
 
     except Exception as e:
         error_str = str(e)
+        finish_attempt(url, attempt["id"], "failed")
         if "security token" in error_str.lower() or "expired" in error_str.lower():
             refresh_credentials()
             await save_job_status(url, "pending", "credentials_expired_retry")
