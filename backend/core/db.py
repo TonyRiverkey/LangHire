@@ -237,6 +237,7 @@ def add_jobs(jobs: list[dict]) -> int:
     conn = connect()
     added = 0
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
         for job in jobs:
             url = job.get("url")
             if not url:
@@ -248,11 +249,12 @@ def add_jobs(jobs: list[dict]) -> int:
     return added
 
 
-def update_job(url: str, **fields) -> bool:
+def update_job(url: str, *, if_unchanged: dict | None = None, **fields) -> bool:
     conn = connect()
     with conn:
+        conn.execute("BEGIN IMMEDIATE")
         job = get_job(url)
-        if job is None:
+        if job is None or any(job.get(key) != value for key, value in (if_unchanged or {}).items()):
             return False
         job.update(fields)
         _upsert(conn, job)

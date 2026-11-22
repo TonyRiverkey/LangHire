@@ -45,6 +45,7 @@ uv run python -m PyInstaller \
   --collect-submodules api \
   --collect-submodules engine \
   --collect-submodules keyring \
+  --copy-metadata microsoft-copilot-sdk \
   --copy-metadata keyring \
   --collect-data docx \
   --hidden-import uvicorn.logging \

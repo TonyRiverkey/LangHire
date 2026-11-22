@@ -11,7 +11,6 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
-  FileText,
   Zap,
   Download,
   HelpCircle,
@@ -28,15 +27,15 @@ import {
   getApplyStatus,
   getJobs,
   getMetricRuns,
-  getSettings,
   exportJobsCsv,
   getApplications,
 } from "../../lib/api";
 import { trackEvent, usageParams } from "../../lib/analytics";
 import { countUncertain } from "../../lib/answers";
 import LogLine from "../../components/LogLine";
+import ApplicationDocuments from "../../components/ApplicationDocuments";
 import { useTranslation } from "react-i18next";
-import type { Job, RunMetric, AppSettings, ApplicationRecord } from "../../lib/types";
+import type { Job, RunMetric, ApplicationRecord } from "../../lib/types";
 
 interface AppliedJobRow {
   job: Job;
@@ -61,7 +60,6 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
   // Applied jobs state
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobRow[]>([]);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
-  const [resumePath, setResumePath] = useState<string>("");
 
   const [runCost, setRunCost] = useState<number | null>(null);
   const [detailsJob, setDetailsJob] = useState<Job | null>(null);
@@ -79,14 +77,13 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
 
   async function loadAppliedJobs() {
     try {
-      const [applied, failed, needsInput, skipped, testPassed, metrics, settings] = await Promise.all([
+      const [applied, failed, needsInput, skipped, testPassed, metrics] = await Promise.all([
         getJobs({ status: "applied" }),
         getJobs({ status: "failed" }),
         getJobs({ status: "needs_input" }).catch(() => [] as Job[]),
         getJobs({ status: "skipped" }).catch(() => [] as Job[]),
         getJobs({ status: "test_passed" }).catch(() => [] as Job[]),
         getMetricRuns(200),
-        getSettings(),
       ]);
       const records = await getApplications({ limit: 500 }).catch(() => [] as ApplicationRecord[]);
       const uncertainByUrl = new Map<string, number>();
@@ -94,8 +91,6 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
         // newest first: keep the latest application per job
         if (r.job_url && !uncertainByUrl.has(r.job_url)) uncertainByUrl.set(r.job_url, countUncertain(r));
       }
-
-      setResumePath((settings as AppSettings).resume_path || "");
 
       const allJobs = [...applied, ...failed, ...(needsInput || []), ...(skipped || []), ...(testPassed || [])];
       // Build a map of metrics by job_url for quick lookup
@@ -468,20 +463,6 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
                             </div>
                           </div>
 
-                          {/* Resume path */}
-                          {resumePath && (
-                            <div className="flex items-start gap-2">
-                              <FileText className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-[11px] text-muted-foreground uppercase font-medium">
-                                  Resume
-                                </p>
-                                <p className="text-sm text-foreground truncate">
-                                  {resumePath}
-                                </p>
-                              </div>
-                            </div>
-                          )}
                         </div>
 
                         {/* Right column — metrics */}
@@ -547,6 +528,7 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
                           </div>
                         )}
                       </div>
+                      <ApplicationDocuments jobUrl={row.job.url} historyOnly />
                     </div>
                   )}
                 </div>

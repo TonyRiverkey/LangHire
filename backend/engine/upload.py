@@ -36,13 +36,15 @@ _FIND_JS = r"""(() => {
     if (box) t += ' ' + (box.innerText || '').slice(0, 200);
     return t.toLowerCase();
   };
+  const coverLetter = __COVER_LETTER__;
   let best = null, bestScore = -1e9;
   all.forEach((el, i) => {
     if (el.disabled) return;
     const t = text(el);
-    let s = 0;
-    if (/resume|cv\b|curriculum/.test(t)) s += 10;
-    if (/cover|letter|transcript|portfolio|photo|avatar|image/.test(t)) s -= 8;
+    const cover = /cover[ _-]*letter|coverletter/.test(t);
+    if (coverLetter && !cover) return;
+    if (!coverLetter && /cover|letter|transcript|portfolio|photo|avatar|image/.test(t)) return;
+    let s = coverLetter || /resume|cv\b|curriculum/.test(t) ? 10 : 0;
     if (/pdf|doc/.test(el.accept || '')) s += 1;
     if (s > bestScore) { bestScore = s; best = el; }
   });
@@ -58,10 +60,11 @@ async def _targets(root) -> list[dict]:
             and t.get("url", "").startswith("http")]
 
 
-async def upload_resume_any_frame(browser_session, path: str) -> str:
+async def upload_resume_any_frame(browser_session, path: str, *, cover_letter: bool = False) -> str:
     """Attach `path` to the best resume input on the current page or its iframes. Returns a status line."""
+    label = "Cover letter" if cover_letter else "Resume"
     if not path or not os.path.isfile(path):
-        return "No resume file is configured."
+        return f"No {label.lower()} file is configured."
     root = getattr(browser_session, "_cdp_client_root", None)
     if root is None:
         return "Browser not ready."
@@ -74,7 +77,7 @@ async def upload_resume_any_frame(browser_session, path: str) -> str:
     candidates: list[tuple] = []
     sessions: list[str] = []
     try:
-        return await _upload(root, targets, candidates, sessions, path)
+        return await _upload(root, targets, candidates, sessions, path, label, cover_letter)
     finally:
         for sid in sessions:
             try:
@@ -83,13 +86,14 @@ async def upload_resume_any_frame(browser_session, path: str) -> str:
                 pass
 
 
-async def _upload(root, targets, candidates, sessions, path) -> str:
+async def _upload(root, targets, candidates, sessions, path, label, cover_letter) -> str:
+    find_input = _FIND_JS.replace("__COVER_LETTER__", json.dumps(cover_letter))
     for t in targets:
         try:
             att = await root.send.Target.attachToTarget(params={"targetId": t["targetId"], "flatten": True})
             sid = att["sessionId"]
             sessions.append(sid)
-            r = await root.send.Runtime.evaluate(params={"expression": _FIND_JS, "returnByValue": True},
+            r = await root.send.Runtime.evaluate(params={"expression": find_input, "returnByValue": True},
                                                  session_id=sid)
             val = (r.get("result") or {}).get("value")
             if val:
@@ -98,7 +102,7 @@ async def _upload(root, targets, candidates, sessions, path) -> str:
         except Exception as e:
             _log.debug(f"upload: target {t.get('url', '')[:60]} skipped: {e}")
     if not candidates:
-        return "No file upload field found on this page or its frames."
+        return f"No {label.lower()} file upload field found on this page or its frames."
     candidates.sort(key=lambda c: -c[0])
     score, target, sid, info = candidates[0]
     r = await root.send.Runtime.evaluate(params={"expression": "window.__lhResumeInput"}, session_id=sid)
@@ -125,6 +129,6 @@ async def _upload(root, targets, candidates, sessions, path) -> str:
     _log.info(f"upload: resume set on {where} ({target.get('url', '')[:80]}), field={info.get('id')!r}, "
               f"shown={shown}")
     if shown:
-        return f"Resume {name} attached to the resume field on {where}; the page shows the file name."
-    return (f"Resume {name} was set on the resume field on {where}, but the page does not show the file name yet. "
+        return f"{label} {name} attached to the {label.lower()} field on {where}; the page shows the file name."
+    return (f"{label} {name} was set on the {label.lower()} field on {where}, but the page does not show the file name yet. "
             "Look at the field: if it is still empty, report it in your final reason.")

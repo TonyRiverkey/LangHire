@@ -2,12 +2,14 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { isTauri } from "@tauri-apps/api/core";
 import ResumePickerForm from "./ResumePickerForm";
-import { getSettings, saveSettings } from "../../lib/api";
+import { getSettings, saveSettings, uploadResume } from "../../lib/api";
 
 vi.mock("../../lib/api", () => ({
   getSettings: vi.fn(),
   saveSettings: vi.fn(),
+  uploadResume: vi.fn(),
 }));
 
 const mockGetSettings = vi.mocked(getSettings);
@@ -16,6 +18,8 @@ const mockOpen = vi.mocked(open);
 
 describe("ResumePickerForm", () => {
   beforeEach(() => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    vi.mocked(uploadResume).mockImplementation(async (file) => ({ resume_path: `/stored/${file.name}` }));
     mockGetSettings.mockResolvedValue({ resume_path: "" } as never);
     mockSaveSettings.mockResolvedValue({ success: true } as never);
     mockOpen.mockResolvedValue(null as never);
@@ -24,9 +28,9 @@ describe("ResumePickerForm", () => {
   it("shows a loading spinner before settings resolve, then the input", async () => {
     render(<ResumePickerForm />);
     // While loading there is no labelled input yet.
-    expect(screen.queryByText("Resume PDF Path")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resume Path")).not.toBeInTheDocument();
 
-    expect(await screen.findByText("Resume PDF Path")).toBeInTheDocument();
+    expect(await screen.findByText("Resume Path")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("/path/to/your/resume.pdf")).toBeInTheDocument();
   });
 
@@ -78,7 +82,7 @@ describe("ResumePickerForm", () => {
     const user = userEvent.setup();
     render(<ResumePickerForm />);
 
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
     await user.click(screen.getByRole("button", { name: /Browse/i }));
 
     expect(mockOpen).toHaveBeenCalledWith({
@@ -99,7 +103,7 @@ describe("ResumePickerForm", () => {
     const user = userEvent.setup();
     render(<ResumePickerForm />);
 
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
     await user.click(screen.getByRole("button", { name: /Browse/i }));
 
     await new Promise((r) => setTimeout(r, 100));
@@ -118,16 +122,16 @@ describe("ResumePickerForm", () => {
 
   // ── Drag-and-drop ─────────────────────────────────────────────────────────
   const getDropZone = () =>
-    screen.getByRole("button", { name: /Drop a PDF resume here/i });
+    screen.getByRole("button", { name: /Drop a resume here/i });
 
   it("highlights the drop zone on drag-over", async () => {
     render(<ResumePickerForm />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
 
     const zone = getDropZone();
     expect(zone.className).not.toContain("border-primary");
     expect(
-      screen.getByText(/Drag & drop a PDF resume here/i),
+      screen.getByText(/Drag & drop a PDF or Word resume here/i),
     ).toBeInTheDocument();
 
     fireEvent.dragEnter(zone, { dataTransfer: { types: ["Files"] } });
@@ -139,7 +143,7 @@ describe("ResumePickerForm", () => {
 
   it("removes the highlight on drag-leave", async () => {
     render(<ResumePickerForm />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
 
     const zone = getDropZone();
     fireEvent.dragEnter(zone, { dataTransfer: { types: ["Files"] } });
@@ -152,7 +156,7 @@ describe("ResumePickerForm", () => {
   it("saves and shows success when a PDF file is dropped", async () => {
     const onSaved = vi.fn();
     render(<ResumePickerForm onSaved={onSaved} />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
 
     const zone = getDropZone();
     const file = new File(["%PDF-1.4"], "resume.pdf", {
@@ -163,18 +167,18 @@ describe("ResumePickerForm", () => {
 
     await waitFor(() =>
       expect(mockSaveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ resume_path: "resume.pdf" }),
+        expect.objectContaining({ resume_path: "/stored/resume.pdf" }),
       ),
     );
     expect(onSaved).toHaveBeenCalled();
     expect(await screen.findByText(/Saved/)).toBeInTheDocument();
     const input = screen.getByPlaceholderText("/path/to/your/resume.pdf");
-    expect(input).toHaveValue("resume.pdf");
+    expect(input).toHaveValue("/stored/resume.pdf");
   });
 
   it("uses the real filesystem path when the dropped File exposes one (Tauri)", async () => {
     render(<ResumePickerForm />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
 
     const zone = getDropZone();
     const file = new File(["%PDF-1.4"], "resume.pdf", {
@@ -193,14 +197,14 @@ describe("ResumePickerForm", () => {
 
   it("rejects a non-PDF drop with an error and does not save", async () => {
     render(<ResumePickerForm />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
 
     const zone = getDropZone();
     const file = new File(["hello"], "notes.txt", { type: "text/plain" });
 
     fireEvent.drop(zone, { dataTransfer: { files: [file], types: ["Files"] } });
 
-    expect(await screen.findByText(/Only PDF and Word \(\.docx\) resumes are supported/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Choose a PDF or Word \(\.docx\) resume/i)).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 200));
     expect(mockSaveSettings).not.toHaveBeenCalled();
     const input = screen.getByPlaceholderText("/path/to/your/resume.pdf");
@@ -209,20 +213,22 @@ describe("ResumePickerForm", () => {
 
   it("accepts a Word .docx resume", async () => {
     render(<ResumePickerForm />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
     const zone = getDropZone();
     const file = new File(["PK"], "Resume.docx", {
       type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
+    vi.mocked(uploadResume).mockResolvedValue({ resume_path: "/stored/resume.docx" });
     fireEvent.drop(zone, { dataTransfer: { files: [file], types: ["Files"] } });
     await waitFor(() =>
-      expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ resume_path: "Resume.docx" })),
+      expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ resume_path: "/stored/resume.docx" })),
     );
+    expect(uploadResume).toHaveBeenCalledWith(file);
   });
 
   it("accepts a .pdf file even when the MIME type is missing", async () => {
     render(<ResumePickerForm />);
-    await screen.findByText("Resume PDF Path");
+    await screen.findByText("Resume Path");
 
     const zone = getDropZone();
     const file = new File(["%PDF-1.4"], "MyResume.PDF", { type: "" });
@@ -231,8 +237,71 @@ describe("ResumePickerForm", () => {
 
     await waitFor(() =>
       expect(mockSaveSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ resume_path: "MyResume.PDF" }),
+        expect.objectContaining({ resume_path: "/stored/MyResume.PDF" }),
       ),
     );
+  });
+
+  it("opens the browser file input and uploads the selected PDF", async () => {
+    vi.mocked(isTauri).mockReturnValue(false);
+    const onSaved = vi.fn();
+    const user = userEvent.setup();
+    render(<ResumePickerForm onSaved={onSaved} />);
+    await screen.findByText("Resume Path");
+    const picker = screen.getByLabelText("Choose a resume");
+    const click = vi.spyOn(picker, "click");
+    await user.click(screen.getByRole("button", { name: /Browse/i }));
+    expect(click).toHaveBeenCalled();
+    expect(mockOpen).not.toHaveBeenCalled();
+    const file = new File(["%PDF-1.4"], "cv.pdf", { type: "application/pdf" });
+    fireEvent.change(picker, { target: { files: [file] } });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(uploadResume).toHaveBeenCalledWith(file);
+    expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ resume_path: "/stored/cv.pdf" }));
+  });
+
+  it("shows upload failures without saving a filename or reporting success", async () => {
+    vi.mocked(uploadResume).mockRejectedValue(new Error("offline"));
+    render(<ResumePickerForm />);
+    await screen.findByText("Resume Path");
+    fireEvent.change(screen.getByLabelText("Choose a resume"), {
+      target: { files: [new File(["%PDF-1.4"], "cv.pdf")] },
+    });
+    expect(await screen.findByText(/Could not upload/)).toBeInTheDocument();
+    expect(mockSaveSettings).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Saved/)).not.toBeInTheDocument();
+  });
+
+  it("rejects oversized files before uploading", async () => {
+    render(<ResumePickerForm />);
+    await screen.findByText("Resume Path");
+    const file = new File(["%PDF-1.4"], "cv.pdf");
+    Object.defineProperty(file, "size", { value: 10 * 1024 * 1024 + 1 });
+    fireEvent.change(screen.getByLabelText("Choose a resume"), { target: { files: [file] } });
+    expect(await screen.findByText(/10 MB or smaller/)).toBeInTheDocument();
+    expect(uploadResume).not.toHaveBeenCalled();
+    expect(mockSaveSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not save or upload when browser selection is cancelled", async () => {
+    vi.mocked(isTauri).mockReturnValue(false);
+    render(<ResumePickerForm />);
+    await screen.findByText("Resume Path");
+    fireEvent.change(screen.getByLabelText("Choose a resume"), { target: { files: [] } });
+    expect(uploadResume).not.toHaveBeenCalled();
+    expect(mockSaveSettings).not.toHaveBeenCalled();
+  });
+
+  it("reports settings save failures without showing success", async () => {
+    mockSaveSettings.mockRejectedValueOnce(new Error("disk full"));
+    const onSaved = vi.fn();
+    render(<ResumePickerForm onSaved={onSaved} />);
+    await screen.findByText("Resume Path");
+    fireEvent.change(screen.getByLabelText("Choose a resume"), {
+      target: { files: [new File(["%PDF-1.4"], "cv.pdf")] },
+    });
+    expect(await screen.findByText(/Could not save the resume selection/)).toBeInTheDocument();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Saved/)).not.toBeInTheDocument();
   });
 });

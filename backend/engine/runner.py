@@ -117,6 +117,8 @@ class RunManager:
                 if state.cancel_requested:
                     state.error = "cancelled"
                     emit("run_finished", "🛑 Stopped by user", status="cancelled")
+                elif (state.stats.get("report") or {}).get("status") == "partial":
+                    emit("run_finished", "⚠️ Collection partially completed", "warning", status="partial", stats=state.stats)
                 else:
                     emit("run_finished", "✅ Finished successfully", status="succeeded", stats=state.stats)
             except asyncio.CancelledError:
@@ -130,6 +132,11 @@ class RunManager:
                 state.running = False
                 state.finished_at = datetime.now().isoformat()
                 status = "cancelled" if state.error == "cancelled" else ("failed" if state.error else "succeeded")
+                report = ctx.counters.get("report")
+                if status == "succeeded" and report and report.get("status") == "partial":
+                    status = "partial"
+                if report:
+                    state.stats["report"] = report
                 try:
                     db.finish_run(run_id, status, None if status != "failed" else state.error,
                                   {**state.stats, **({"usage": ctx.counters["usage"]}

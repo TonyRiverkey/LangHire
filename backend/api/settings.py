@@ -1,19 +1,15 @@
 """Profile, app settings and LLM settings."""
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter
 
-from core.llm_factory import ainvoke_text
-
 from core.config import (load_llm_settings, load_profile, load_settings, save_llm_settings,
                          save_profile, save_settings)
+from core.profile_extraction import parse_resume_to_profile as extract_resume
+from core.resume_upload import upload_resume
 from models import LLMSettingsBody, OllamaModelsRequest, ProfileBody, SettingsBody
-
-from .common import llm_text
 
 router = APIRouter()
 _log = logging.getLogger("backend")
@@ -91,164 +87,12 @@ async def update_settings(settings: SettingsBody):
     return {"success": True}
 
 
+router.post("/resume/upload")(upload_resume)
+
+
 @router.post("/profile/parse-resume")
 async def parse_resume_to_profile():
-    """Read the user's resume PDF and use the configured LLM to extract profile fields."""
-    import re as _re
-
-    settings = load_settings()
-    resume_path = settings.get("resume_path", "").strip()
-    if not resume_path:
-        return {"success": False, "message": "No resume path configured. Set it in Settings first."}
-
-    resume_file = Path(resume_path).resolve()
-    if not resume_file.exists():
-        return {"success": False, "message": f"Resume file not found: {resume_path}"}
-    from resume.text import SUPPORTED, resume_text as _resume_text
-    if resume_file.suffix.lower() not in SUPPORTED:
-        return {"success": False, "message": "Resume must be a PDF or Word (.docx) file."}
-
-    try:
-        resume_text = _resume_text(resume_file)
-        if not resume_text:
-            return {"success": False, "message": "Could not extract any text from the resume. "
-                                                 "If it is a scanned image, export it as a text PDF or .docx."}
-    except Exception as e:
-        return {"success": False, "message": f"Failed to read the resume: {e}"}
-
-    # 2. Send to LLM for structured extraction
-    llm_settings = load_llm_settings()
-    if not llm_settings.get("provider"):
-        return {"success": False, "message": "No LLM provider configured. Set it in LLM Settings first."}
-
-    try:
-        from core.llm_factory import create_llm
-        llm = create_llm(llm_settings)
-    except Exception as e:
-        return {"success": False, "message": f"Failed to create LLM: {e}"}
-
-    prompt = f"""Extract candidate profile information from this resume text. Return ONLY a valid JSON object with these fields (use empty string "" for missing text fields, 0 for missing numbers, empty array [] for missing lists, false for missing booleans):
-
-{{
-  "name": "Full Name",
-  "email": "email@example.com",
-  "phone": "phone number",
-  "address": {{"street": "", "city": "City", "state": "State", "zip": "ZIP", "country": "Country name"}},
-  "work_authorization": "",
-  "visa_sponsorship_needed": false,
-  "willing_to_relocate": false,
-  "preferred_work_mode": "",
-  "years_of_experience": 0,
-  "education": {{"degree": "Degree Name", "school": "University Name", "graduation": "Year or Date"}},
-  "current_role": "Current or Most Recent Job Title",
-  "target_job_titles": ["Job Title 1", "Job Title 2"],
-  "target_locations": ["City, State"],
-  "languages": ["English"],
-  "skills": ["Skill 1", "Skill 2"],
-  "salary_expectation": {{"min": 0, "max": 0, "currency": ""}},
-  "notes": ""
-}}
-
-Rules:
-- Extract the MOST RECENT job title as current_role
-- For target_job_titles, infer 2-4 relevant titles based on their experience and skills
-- For target_locations, use the candidate's current city/state if mentioned
-- For skills, extract ALL mentioned technical and soft skills
-- For years_of_experience, calculate from work history dates if possible
-- For education, use the highest degree
-- Only fill work_authorization, visa_sponsorship_needed, preferred_work_mode and salary_expectation when the
-  resume states them explicitly; otherwise leave them empty / 0 / false. Never guess these.
-- The values above are placeholders showing the format, not defaults to copy
-- Return ONLY the JSON object, no other text
-
-RESUME TEXT:
-{resume_text[:6000]}"""
-
-    try:
-        response = await ainvoke_text(llm, prompt)
-        response_text = llm_text(response)
-
-        # Parse JSON from response
-        match = _re.search(r"\{.*\}", response_text, _re.DOTALL)
-        if not match:
-            return {"success": False, "message": "LLM did not return valid JSON. Try again."}
-
-        parsed_profile = json.loads(match.group())
-
-        # Normalize skills: LLM sometimes returns {technical_skills: [...], soft_skills: [...]}
-        if isinstance(parsed_profile.get("skills"), dict):
-            skills_dict = parsed_profile["skills"]
-            flat_skills = []
-            for v in skills_dict.values():
-                if isinstance(v, list):
-                    flat_skills.extend(v)
-                elif isinstance(v, str) and v.strip():
-                    flat_skills.append(v)
-            parsed_profile["skills"] = flat_skills
-
-        # The country picker drives date format, currency and work-authorization options;
-        # it used to stay at the default "US" even for a resume with an Indian address.
-        inferred = infer_country_code(parsed_profile)
-        if inferred:
-            from core.country_config import COUNTRY_CONFIGS
-            cfg = COUNTRY_CONFIGS[inferred]
-            parsed_profile["country"] = inferred
-            parsed_profile.setdefault("date_format", cfg.get("date_format", ""))
-            sal = parsed_profile.get("salary_expectation")
-            if isinstance(sal, dict) and cfg.get("currency"):
-                sal["currency"] = cfg["currency"]
-
-        # Merge with existing profile — overwrite with parsed values when they're non-empty
-        existing = load_profile()
-        for key, value in parsed_profile.items():
-            if key not in existing:
-                existing[key] = value
-                continue
-            if isinstance(value, str) and value.strip():
-                existing[key] = value
-            elif isinstance(value, list) and value:
-                existing[key] = value
-            elif isinstance(value, dict):
-                if key not in existing or not isinstance(existing[key], dict):
-                    existing[key] = value
-                else:
-                    for sub_key, sub_val in value.items():
-                        if isinstance(sub_val, str) and sub_val.strip():
-                            existing[key][sub_key] = sub_val
-                        elif isinstance(sub_val, (int, float)) and sub_val > 0:
-                            existing[key][sub_key] = sub_val
-            elif isinstance(value, (int, float)) and value > 0:
-                existing[key] = value
-
-        # Save the merged profile
-        save_profile(existing)
-
-        # Count how many fields were filled
-        filled_count = 0
-        for key, value in parsed_profile.items():
-            if isinstance(value, str) and value.strip():
-                filled_count += 1
-            elif isinstance(value, list) and value:
-                filled_count += 1
-            elif isinstance(value, dict):
-                for sv in value.values():
-                    if isinstance(sv, str) and sv.strip():
-                        filled_count += 1
-                        break
-            elif isinstance(value, (int, float)) and value > 0:
-                filled_count += 1
-
-        return {
-            "success": True,
-            "message": f"Extracted {filled_count} fields from your resume!",
-            "profile": existing,
-            "fields_filled": filled_count,
-        }
-
-    except json.JSONDecodeError:
-        return {"success": False, "message": "LLM returned invalid JSON. Try again."}
-    except Exception as e:
-        return {"success": False, "message": f"LLM parsing failed: {e}"}
+    return await extract_resume(infer_country_code)
 
 
 _COUNTRY_ALIASES = {"usa": "US", "united states of america": "US", "u.s.": "US", "u.s.a.": "US", "uk": "GB",

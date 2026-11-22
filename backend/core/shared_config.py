@@ -224,7 +224,10 @@ def build_memory_context(
     sal_min = sal.get('min', 0) or 0
     sal_max = sal.get('max', 0) or 0
     sal_period = sal.get('period', 'annual')
-    salary_str = f"{sal_currency} {sal_min:,}-{sal_max:,} ({sal_period})" if sal_min else "Not specified"
+    if sal_min and not sal_max:
+        salary_str = f"{sal_currency} {sal_min:,} minimum ({sal_period}); no maximum specified"
+    else:
+        salary_str = f"{sal_currency} {sal_min:,}-{sal_max:,} ({sal_period})" if sal_min else "Not specified"
 
     # Country-aware date format
     date_format = profile.get('date_format', '') or 'MM/DD/YYYY'

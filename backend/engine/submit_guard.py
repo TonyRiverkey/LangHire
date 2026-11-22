@@ -354,3 +354,43 @@ def install_arm_hook(tools, interceptor: SubmitInterceptor, report) -> None:
         return await original(*args, **kwargs)
 
     click.function = armed_click
+
+
+def install_document_review_hook(tools, check) -> None:
+    """Recheck the reviewed inputs and uploaded file set before a final-submit action."""
+    from browser_use.agent.views import ActionResult
+
+    from .dryrun import element_label, looks_like_final_submit
+
+    actions = tools.registry.registry.actions
+    click = actions["click"]
+    original = click.function
+
+    async def reviewed_click(*args, **kwargs):
+        params = kwargs.get("params") or (args[0] if args else None)
+        session = kwargs.get("browser_session")
+        index = getattr(params, "index", None)
+        if session is None or index is None:
+            return ActionResult(error="Choose a visible form control by its index.")
+        node = await session.get_element_by_index(index)
+        if node is None:
+            return ActionResult(error="The form control is no longer visible.")
+        if looks_like_final_submit(element_label(node)):
+            try:
+                check()
+            except (ValueError, OSError) as error:
+                return ActionResult(error=str(error))
+        return await original(*args, **kwargs)
+
+    click.function = reviewed_click
+    send_keys = actions.get("send_keys")
+    if send_keys is not None:
+        original_keys = send_keys.function
+
+        async def reviewed_keys(*args, **kwargs):
+            params = kwargs.get("params") or (args[0] if args else None)
+            if "enter" in str(getattr(params, "keys", "")).lower():
+                return ActionResult(error="Click the visible form control instead of sending Enter.")
+            return await original_keys(*args, **kwargs)
+
+        send_keys.function = reviewed_keys

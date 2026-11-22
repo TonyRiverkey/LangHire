@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { FolderOpen, CheckCircle, Loader2, Upload } from "lucide-react";
-import { getSettings, saveSettings } from "../../lib/api";
+import { getSettings, saveSettings, uploadResume } from "../../lib/api";
 import { open } from "@tauri-apps/plugin-dialog";
+import { isTauri } from "@tauri-apps/api/core";
 
 interface ResumePickerFormProps {
   onSaved?: () => void;
 }
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-/** PDF or Word (.docx): both can be parsed and uploaded; tailoring needs a PDF. */
 const isResumeFile = (name: string, type?: string) =>
   type === "application/pdf" || type === DOCX || /\.(pdf|docx)$/i.test(name);
 
@@ -21,6 +21,7 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
   const [dropError, setDropError] = useState("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef("");
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     getSettings()
@@ -47,25 +48,58 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
       onSaved?.();
-    } catch { /* silent */ }
+    } catch { setDropError("Could not save the resume selection. Please try again."); }
     finally { setSaving(false); }
   };
 
   const handleChange = (path: string) => {
     setResumePath(path);
     setSaved(false);
+    setDropError("");
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => doSave(path), 800);
   };
 
   const handleBrowse = async () => {
+    setDropError("");
+    if (!isTauri()) {
+      fileInput.current?.click();
+      return;
+    }
     try {
       const file = await open({ filters: [{ name: "Resume (PDF or Word)", extensions: ["pdf", "docx"] }] });
       if (file) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        setSaved(false);
         setResumePath(file as string);
         doSave(file as string); // Save immediately on browse
       }
-    } catch { /* Dialog cancelled */ }
+    } catch { setDropError("Could not open the file picker. Please try again."); }
+  };
+
+  const handleFile = async (file: File) => {
+    if (!isResumeFile(file.name, file.type)) {
+      setDropError("Choose a PDF or Word (.docx) resume.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setDropError("Resume must be 10 MB or smaller.");
+      return;
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setDropError("");
+    setSaved(false);
+    setSaving(true);
+    try {
+      const path = (file as File & { path?: string }).path
+        || (await uploadResume(file)).resume_path;
+      setResumePath(path);
+      await doSave(path);
+    } catch {
+      setDropError("Could not upload the resume. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -97,24 +131,26 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
       setDropError("No file detected. Please drop a PDF or Word (.docx) resume.");
       return;
     }
-    if (!isResumeFile(file.name, file.type)) {
-      setDropError("Only PDF and Word (.docx) resumes are supported.");
-      return;
-    }
-    setDropError("");
-    // In the Tauri desktop webview the dropped File exposes a real filesystem
-    // path; in the browser only the file name is available. The backend stores
-    // a path string (resume_path), so use the best identifier we have.
-    const path = (file as File & { path?: string }).path || file.name;
-    setResumePath(path);
-    doSave(path);
+    void handleFile(file);
   };
 
   if (loading) return <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>;
 
   return (
     <div className="space-y-2">
-      <label className="block text-sm font-medium text-foreground">Resume PDF Path</label>
+      <input
+        ref={fileInput}
+        type="file"
+        accept={".pdf,.docx,application/pdf," + DOCX}
+        aria-label="Choose a resume"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void handleFile(file);
+        }}
+      />
+      <label className="block text-sm font-medium text-foreground">Resume Path</label>
       <div className="flex gap-2">
         <input
           value={resumePath}
@@ -129,7 +165,7 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
       <div
         role="button"
         tabIndex={0}
-        aria-label="Drop a PDF resume here to upload"
+        aria-label="Drop a resume here to upload"
         onClick={handleBrowse}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleBrowse(); } }}
         onDragEnter={handleDragEnter}
@@ -143,13 +179,13 @@ export default function ResumePickerForm({ onSaved }: ResumePickerFormProps) {
         }`}
       >
         <Upload className="w-5 h-5" />
-        <span>{dragging ? "Drop your resume" : "Drag & drop a PDF resume here (Word .docx works too), or click to browse"}</span>
+        <span>{dragging ? "Drop your resume" : "Drag & drop a PDF or Word resume here, or click to browse"}</span>
       </div>
       <div className="flex items-center gap-2 min-h-5">
         {dropError && <span className="text-xs text-red-600">{dropError}</span>}
         {!dropError && saving && <span className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Saving...</span>}
         {!dropError && saved && <span className="flex items-center gap-1 text-xs text-green-600"><CheckCircle className="w-3 h-3" /> Saved ✓</span>}
-        {!dropError && !saving && !saved && resumePath && <span className="text-xs text-muted-foreground">PDF file used for job applications</span>}
+        {!dropError && !saving && !saved && resumePath && <span className="text-xs text-muted-foreground">PDF required for tailoring and reviewed applications</span>}
       </div>
     </div>
   );

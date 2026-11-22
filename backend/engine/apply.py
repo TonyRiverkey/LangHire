@@ -253,7 +253,7 @@ async def _llm_learnings(history, url: str, title: str, success: bool) -> list[d
 
 async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: list[str],
                        worker_id: int, ctx: RunContext | None = None,
-                       resume_override: str | None = None, _vision: bool | None = None,
+                       _vision: bool | None = None,
                        test_mode: bool = False) -> dict:
     """Apply to one job. Returns {"status", "cost_usd", "outcome"}."""
     url = job["url"]
@@ -270,19 +270,23 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
         _set_status(url, "blocked", "Blocked domain")
         emit("job_skipped", f"🚫 {tag} Blocked domain: {title} at {company}", job_url=url)
         return {"status": "blocked", "cost_usd": 0.0}
+    from resume.application_documents import finish_attempt, start_attempt, validated_documents
+
     if not db.claim_job(url):
         emit("job_skipped", f"⏭️ {tag} Skipped (already claimed): {title} at {company}", job_url=url)
         return {"status": "skipped", "cost_usd": 0.0}
 
+    try:
+        attempt, resume_path, provided_files = start_attempt(job)
+    except (ValueError, OSError) as error:
+        db.update_job(url, status="pending", error=str(error))
+        emit("job_skipped", f"{title}: {error}", "warning", job_url=url)
+        return {"status": "skipped", "outcome": "review_required", "cost_usd": 0.0}
+
+    profile = {**profile, "cover_letter": attempt.get("letter", "")}
+    cover_path = next((path for path in provided_files if path != resume_path), "")
     events.current_job.set(url)  # task-local: each worker task has its own copy
     emit("job_started", f"🚀 {tag} Starting: {title} at {company}", job_url=url, title=title, company=company)
-    resume_path = resume_override or settings.get("resume_path", "") or ""
-    from resume.tailor import get_tailored_resume_path
-    tailored = get_tailored_resume_path(url)
-    if tailored:
-        resume_path = tailored
-        emit("log", f"📄 {tag} Using tailored resume")
-
     store = sc.get_memory_store()
     domain = _domain(url)
     ats = detect_ats(url) or store.detect_ats_platform(domain)
@@ -305,8 +309,26 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
         has_password=has_password, gmail_otp=bool(settings.get("email_otp_via_gmail")), blocked=blocked,
         test_mode=test_mode,
     )
+    task += (
+        f"\n\nREVIEWED DOCUMENTS: Use upload_resume for the approved {attempt['mode']} format. "
+        "Replace any pre-existing resume with the approved PDF. "
+        "If upload_resume cannot attach it, or if the employer requires an unreviewed file or different format, "
+        "stop without submitting and report what is required. Never generate or substitute an attachment."
+    )
+    if cover_path:
+        task += " Use upload_cover_letter for the approved separate cover letter. Use the job-specific letter text for text fields."
     report = AgentReport()
-    tools = build_apply_tools(report, profile, resume_path)
+    tools = build_apply_tools(report, profile, resume_path, reviewed=True, cover_path=cover_path)
+
+    def check_review() -> None:
+        current = db.get_job(url)
+        if current is None or current.get("status") != "in_progress":
+            raise ValueError("The application is no longer active. Stop before submitting.")
+        approved = validated_documents(current)
+        if approved["files"] != attempt["files"]:
+            raise ValueError("This application's reviewed documents changed. Stop before submitting.")
+        if not set(provided_files) <= report.uploaded_paths:
+            raise ValueError("Attach the exact reviewed PDFs before submitting. If the employer requires other files, stop.")
     interceptor = None
     retention = int(settings.get("log_retention_days", 14) or 0)
     convo_path = None
@@ -350,6 +372,8 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
                     install_arm_hook(tools, observer, report)
             except Exception as e:
                 _log.info(f"submit check unavailable: {e}")
+        from .submit_guard import install_document_review_hook
+        install_document_review_hook(tools, check_review)
         agent: Agent = Agent(
             task=task,
             llm=sc.get_llm(),
@@ -365,7 +389,7 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
             # "done only" final step (seen live: the result tool was unavailable there)
             output_model_schema=ApplicationResult,
             extend_system_message=prompts.with_overrides(memory_ctx),
-            available_file_paths=[resume_path] if resume_path else [],
+            available_file_paths=provided_files,
             save_conversation_path=convo_path,
             calculate_cost=True,
             register_new_step_callback=on_step,
@@ -376,10 +400,11 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
             vision.remember_text_only()  # next runs skip screenshots from the start
         if vision_on and report.result is None and vision.history_rejected_images(history):
             emit("log", f"🖼️ {tag} This model does not accept screenshots; retrying without them", "warning")
+            finish_attempt(url, attempt["id"], "retry", history.history, report.uploaded_paths)
             await close_session(browser)
             db.update_job(url, status="pending", error=None)
             return await apply_to_job(job, profile=profile, qa=qa, applied_labels=applied_labels,
-                                      worker_id=worker_id, ctx=ctx, resume_override=resume_override, _vision=False,
+                                      worker_id=worker_id, ctx=ctx, _vision=False,
                                       test_mode=test_mode)
         cost = _usage_cost(history)
         # Final screenshot for the application record
@@ -429,8 +454,12 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
                 reason = (f"[test mode blocked {early} intermediate save(s)] " + (reason or "")).strip()
         elif interceptor is not None and outcome == "submitted":
             outcome, reason = apply_submit_verdict(interceptor, reason)
+        if outcome in ("submitted", "ready_to_submit") and not set(provided_files) <= report.uploaded_paths:
+            outcome, reason = "failed", "The application did not attach all reviewed PDFs."
         status = STATUS_FOR_OUTCOME[outcome]
     except asyncio.CancelledError:
+        finish_attempt(url, attempt["id"], "cancelled",
+                       history.history if history else None, report.uploaded_paths)
         db.update_job(url, status="pending", error=None)
         emit("job_finished", f"🛑 {tag} Cancelled: {title} at {company}", job_url=url, status="cancelled")
         raise
@@ -439,6 +468,9 @@ async def apply_to_job(job: dict, *, profile: dict, qa: dict, applied_labels: li
         status, outcome = "failed", "failed"
     finally:
         await close_session(browser)
+
+    finish_attempt(url, attempt["id"], "retry" if status == "failed" and is_rate_limited(reason) else status,
+                   history.history if history else None, report.uploaded_paths)
 
     if status == "failed" and is_rate_limited(reason):
         # The provider throttled us: not the job's fault. Put it back and let the worker retry later.
@@ -548,6 +580,7 @@ async def run_apply(ctx: RunContext, *, mode: str = "all", workers: int = 1, lim
                     job_url: str | None = None, job_urls: list[str] | None = None,
                     test_mode: bool = False) -> dict:
     settings = load_settings()
+    test_mode = test_mode or bool(settings.get("test_mode"))
     profile = load_profile()
     qa: dict = {}
     pending = select_jobs(mode, limit, job_url, job_urls)

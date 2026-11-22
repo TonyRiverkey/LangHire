@@ -15,6 +15,7 @@ import { cleanup } from "@testing-library/react";
 // port/token so the request helper doesn't throw. Individual tests can
 // `vi.mocked(invoke)...`.
 vi.mock("@tauri-apps/api/core", () => ({
+  isTauri: vi.fn(() => true),
   invoke: vi.fn(async (cmd: string) => {
     if (cmd === "get_backend_info")
       return { port: 8743, token: "test-token", managed: false, status: "running" };

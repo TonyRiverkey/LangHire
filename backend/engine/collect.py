@@ -12,6 +12,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
+from typing import Any
 
 from core import db
 from core.config import load_profile, load_settings
@@ -229,6 +230,8 @@ async def run_collect(ctx: RunContext, *, title: str | None, source: str, max_jo
     if not titles:
         raise ValueError("Add at least one target job title to your profile first")
     ctx.counters.setdefault("collected", 0)
+    if plugin.name == "linkedin":
+        return await _run_linkedin(ctx, plugin, titles, profile, max_jobs, filters)
     total = 0
     for i, t in enumerate(titles, start=1):
         events.info(f"[{i}/{len(titles)}] Collecting '{t}' from {plugin.display_name}")
@@ -257,6 +260,33 @@ async def run_collect(ctx: RunContext, *, title: str | None, source: str, max_jo
     else:
         events.info(f"Collection complete: {total} new job(s) from {plugin.display_name}")
     return {"collected": total}
+
+
+async def _run_linkedin(ctx, plugin, titles, profile, max_jobs, filters):
+    from .linkedin import collect_title, recover_descriptions
+
+    report: dict[str, Any] = {"status": "running", "locations": [], "error": None}
+    ctx.counters["report"] = report
+    try:
+        for title in titles:
+            await collect_title(plugin, title, profile, max_jobs, filters, ctx, report)
+        incomplete = [item for item in report["locations"] if item["status"] != "complete"]
+        if incomplete:
+            report["error"] = "; ".join(f"{item['location']}: {item['reason']}" for item in incomplete)
+            if not ctx.counters["collected"]:
+                raise RuntimeError(report["error"])
+            report["status"] = "partial"
+            events.warn(f"Collection partially completed: {report['error']}")
+        else:
+            report["status"] = "complete"
+        await recover_descriptions(profile)
+        return {"collected": ctx.counters["collected"], "report": report}
+    except asyncio.CancelledError:
+        report.update(status="cancelled", error="Stopped; saved postings retained.")
+        raise
+    except Exception as error:
+        report.update(status="failed", error=str(error))
+        raise
 
 
 async def _fetch_all(needs: list[tuple[str, dict]], browser, profile: dict) -> None:

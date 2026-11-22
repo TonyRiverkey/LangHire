@@ -1440,6 +1440,7 @@ dependencies = [
     { name = "langchain-core" },
     { name = "langchain-google-genai" },
     { name = "langchain-openai" },
+    { name = "microsoft-copilot-sdk" },
     { name = "playwright" },
     { name = "psutil" },
     { name = "pyinstaller" },
@@ -1471,6 +1472,7 @@ requires-dist = [
     { name = "langchain-core", specifier = ">=1.2.28" },
     { name = "langchain-google-genai", specifier = ">=4.2.5" },
     { name = "langchain-openai", specifier = ">=1.1.9" },
+    { name = "microsoft-copilot-sdk", specifier = "==2.0.1" },
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pyinstaller", specifier = ">=6.19.0" },
@@ -1933,6 +1935,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
+]
+
+[[package]]
+name = "microsoft-copilot-sdk"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/aa/6f/ec7f61e1b2f55f046012b46d13661cb58ff51bc9678934eebcbc15a8012b/microsoft_copilot_sdk-2.0.1-py3-none-any.whl", hash = "sha256:beb3a37d64947700b39761187409cf2104e711328db517e3d070837da89e6a77", size = 1119194, upload-time = "2026-11-18T06:13:04.036Z" },
 ]
 
 [[package]]

@@ -31,6 +31,10 @@ def create_llm(settings: dict):
     """Create a browser_use BaseChatModel from settings dict."""
     provider = settings.get("provider", "openai")
 
+    if provider == "copilot":
+        from core.copilot_llm import ChatCopilot
+        return ChatCopilot((settings.get("copilot") or {}).get("model") or "auto")
+
     if provider == "openai":
         from browser_use.llm import ChatOpenAI
         cfg = settings.get("openai", {})

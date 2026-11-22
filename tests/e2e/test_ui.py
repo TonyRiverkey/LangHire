@@ -55,7 +55,9 @@ def test_every_page_renders_without_errors(page: Page):
 
 def test_add_apply_in_test_mode_watch_progress_and_open_the_record(page: Page, backend, ats):
     _enable_test_mode(backend)
-    _add_job_in_ui(page, f"{ats['base']}/jobs/gh-1")
+    url = f"{ats['base']}/jobs/gh-1"
+    _add_job_in_ui(page, url)
+    backend.approve_documents(url, backend.prepare_documents(url))
     _apply_in_ui(page, "Data Analyst")
 
     # live progress: the per-job timeline shows the agent's current goal
@@ -76,7 +78,9 @@ def test_add_apply_in_test_mode_watch_progress_and_open_the_record(page: Page, b
 
 def test_needs_input_badge_answer_in_qa_requeues_the_job(page: Page, backend, ats):
     _enable_test_mode(backend)
-    _add_job_in_ui(page, f"{ats['base']}/jobs/ni-1")
+    url = f"{ats['base']}/jobs/ni-1"
+    _add_job_in_ui(page, url)
+    backend.approve_documents(url, backend.prepare_documents(url))
     _apply_in_ui(page, "Junior Data Analyst")
     expect(page.get_by_test_id("apply-progress")).to_be_visible(timeout=30_000)
     expect(page.get_by_test_id("apply-progress")).to_have_count(0, timeout=300_000)

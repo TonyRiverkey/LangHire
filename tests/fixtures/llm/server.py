@@ -248,6 +248,11 @@ def make_handler(state: State):
                 state.calls += 1
             if body.get("response_format") and "<browser_state>" in user + system:
                 content = json.dumps(decide(system, user))
+            elif "You are a resume tailoring expert." in user:
+                sections = re.findall(r'SECTION (\d+) .*?:\nORIGINAL: "(.*?)"\n→ Rewrite', user, re.S)
+                content = json.dumps(dict(sections))
+            elif "Suggest up to 4 concrete skills" in user:
+                content = json.dumps({"suggestions": []})
             elif body.get("response_format"):
                 content = json.dumps({})
             else:

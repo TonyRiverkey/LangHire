@@ -159,6 +159,23 @@ describe("SetupWizard", () => {
     expect(await screen.findByText("Filled 12 fields")).toBeInTheDocument();
   });
 
+  it("notifies an already mounted profile after successful extraction", async () => {
+    mockGetSetupStatus.mockResolvedValue({ ...baseStatus, resume: true, llm: true } as never);
+    const profile = { name: "Extracted name", skills: ["HRIS"] };
+    mockParseResume.mockResolvedValue({ success: true, message: "Filled fields", profile });
+    const listener = vi.fn();
+    window.addEventListener("langhire:profile-updated", listener);
+    try {
+      const user = userEvent.setup();
+      renderWizard({ initialStep: 2 });
+      await user.click(await screen.findByRole("button", { name: /resumeStep\.autoFill\.button/ }));
+      await waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+      expect((listener.mock.calls[0][0] as CustomEvent).detail).toEqual(profile);
+    } finally {
+      window.removeEventListener("langhire:profile-updated", listener);
+    }
+  });
+
   it("shows a prerequisite warning on the resume step when llm/resume are not done", async () => {
     renderWizard({ initialStep: 2 });
     expect(await screen.findByText("resumeStep.prerequisite")).toBeInTheDocument();

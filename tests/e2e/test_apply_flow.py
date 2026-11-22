@@ -51,6 +51,9 @@ def test_add_by_url_reads_the_posting(backend, ats):
 def test_test_mode_fills_the_form_clicks_submit_and_sends_nothing(backend, ats):
     url = f"{ats['base']}/jobs/gh-1"
     _add(backend, url)
+    reviewed = backend.prepare_documents(url)
+    assert not backend.call("POST", "/apply/start", {"job_url": url, "test_mode": True})["success"]
+    backend.approve_documents(url, reviewed)
     status = _apply(backend, url, test_mode=True)
     job = _job(backend, url)
     rec = _record(backend, url)
@@ -66,6 +69,8 @@ def test_real_submit_reaches_the_employer_with_the_resume(backend, ats):
     url = f"{ats['base']}/jobs/lv-1"
     if not _exists(backend, url):
         _add(backend, url)
+    reviewed = backend.prepare_documents(url, mode="combined", letter="Dear Contoso, I built Tableau and SQL reports.")
+    backend.approve_documents(url, reviewed)
     _apply(backend, url, test_mode=False)
     job = _job(backend, url)
     assert job["status"] == "applied", (job, _record(backend, url).get("reason"), backend.tail())
@@ -74,12 +79,16 @@ def test_real_submit_reaches_the_employer_with_the_resume(backend, ats):
     fields, files = subs[0]["fields"], subs[0]["files"]
     assert fields["email"] == "dana.tester@example.com" and fields["name"] == "Dana Tester"
     assert files["resume"]["is_pdf"]
+    combined = next(file for file in reviewed["files"] if file["kind"] == "combined")
+    assert files["resume"]["sha256"] == combined["sha256"]
+    assert job["application_attempts"][-1]["uploaded_assets"] == [combined["asset"]]
     assert fields["q_sponsorship"] == "No" and fields["consent"] == "yes"
 
 
 def test_needs_input_then_answer_requeues_and_the_retry_passes(backend, ats):
     url = f"{ats['base']}/jobs/ni-1"
     _add(backend, url)
+    backend.approve_documents(url, backend.prepare_documents(url))
     _apply(backend, url, test_mode=True)
     job = _job(backend, url)
     rec = _record(backend, url)
@@ -97,6 +106,21 @@ def test_needs_input_then_answer_requeues_and_the_retry_passes(backend, ats):
     _apply(backend, url, test_mode=True)
     assert _job(backend, url)["status"] == "test_passed", (_record(backend, url).get("reason"), backend.tail())
     assert _submissions(ats, "ni-1") == []
+
+
+def test_stale_review_cannot_start_application(backend, ats):
+    url = f"{ats['base']}/jobs/gh-1"
+    if not _exists(backend, url):
+        _add(backend, url)
+    backend.approve_documents(url, backend.prepare_documents(url))
+    profile = backend.call("GET", "/profile")
+    backend.call("PUT", "/profile", {**profile, "notes": "Edited after reviewing the PDF"})
+    try:
+        result = backend.call("POST", "/apply/start", {"job_url": url, "test_mode": True})
+        assert result["success"] is False and "changed" in result["message"]
+        assert _submissions(ats, "gh-1") == []
+    finally:
+        backend.call("PUT", "/profile", profile)
 
 
 def _exists(backend, url: str) -> bool:

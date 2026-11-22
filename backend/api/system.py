@@ -65,6 +65,8 @@ async def health():
 def llm_configured(llm: dict) -> bool:
     provider = llm.get("provider", "")
     cfg = llm.get(provider) or {}
+    if provider == "copilot":
+        return bool((cfg.get("model") or "").strip())
     if provider == "bedrock":
         if cfg.get("auth_mode") == "keys":
             return bool(cfg.get("access_key", "").strip() and cfg.get("secret_key", "").strip())

@@ -31,6 +31,8 @@ _log = logging.getLogger("backend")
 async def start_collection(body: CollectRequest):
     if manager.is_running("collect"):
         return {"success": False, "message": "Collection already running"}
+    if manager.is_running("apply"):
+        return {"success": False, "message": "Wait for the application run to finish before collecting."}
     kill_profile_browsers()
     label = body.title or "all titles"
 
@@ -65,6 +67,20 @@ async def collection_status():
 async def start_applying(body: ApplyRequest):
     if manager.is_running("apply"):
         return {"success": False, "message": "Application already running"}
+    if manager.is_running("collect"):
+        return {"success": False, "message": "Wait for collection to finish before applying."}
+    selected = [body.job_url] if body.job_url else body.job_urls
+    if not selected:
+        return {"success": False, "message": "Select specific jobs and review their application PDFs first."}
+    from resume.application_documents import validated_documents
+    for url in selected:
+        job = db.get_job(url)
+        if job is None:
+            return {"success": False, "message": "A selected job was not found."}
+        try:
+            validated_documents(job)
+        except (ValueError, OSError) as error:
+            return {"success": False, "message": str(error)}
     kill_profile_browsers()
     from core.config import load_settings
     test_mode = body.test_mode or bool(load_settings().get("test_mode"))

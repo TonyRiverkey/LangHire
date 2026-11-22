@@ -1,10 +1,13 @@
 """Resume tailoring and cover letters."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 
 from fastapi import APIRouter
 
+from core import db
 from core.llm_factory import ainvoke_text
 
 from core.config import load_llm_settings, load_profile
@@ -13,6 +16,7 @@ from models import CoverLetterRequest, JobUrlRequest, RefineRequest, TailorReque
 from .common import api_error, llm_text
 
 router = APIRouter()
+_log = logging.getLogger("backend")
 
 _HASH = re.compile(r"^[0-9a-f]{8,64}$")
 
@@ -23,12 +27,11 @@ _HASH = re.compile(r"^[0-9a-f]{8,64}$")
 async def tailor_resumes(body: TailorRequest):
     """Generate tailored resumes for one or more jobs."""
     from resume.tailor import tailor_resume
-    from core.shared_config import read_jobs, update_job
 
     job_urls = body.job_urls
     options = body.options.model_dump()
 
-    jobs = read_jobs()
+    jobs = db.read_jobs()
     results = []
 
     for url in job_urls:
@@ -36,19 +39,16 @@ async def tailor_resumes(body: TailorRequest):
         if not job:
             results.append({"url": url, "status": "error", "message": "Job not found"})
             continue
-        description = job.get("description", "")
-        if not description:
-            # Fallback: use title + company + location as context for tailoring
-            title = job.get("title", "")
-            company = job.get("company", "")
-            location = job.get("location", "")
-            if not title:
-                results.append({"url": url, "status": "error", "message": "No job description or title available"})
-                continue
-            description = f"Job Title: {title}\nCompany: {company}\nLocation: {location}\n\nTailor the resume for this role based on the job title and company."
+        description = job.get("description") or ""
+        if not description.strip():
+            results.append({"url": url, "status": "error", "message": "Collect the full job description before tailoring."})
+            continue
+        if job.get("status") == "in_progress":
+            results.append({"url": url, "status": "error", "message": "Wait for the current application to finish."})
+            continue
         try:
             result = await tailor_resume(url, description, options)
-            update_job(url, tailored_resume_path=result["path"])
+            await _save_tailoring(job, result["path"])
             results.append({"url": url, "status": "done", "path": result["path"], "content": result["content"],
                             "warnings": result.get("warnings", [])})
         except Exception as e:
@@ -61,27 +61,54 @@ async def tailor_resumes(body: TailorRequest):
 async def refine_tailored_resume(body: RefineRequest):
     """Refine an existing tailored resume with additional instructions."""
     from resume.tailor import tailor_resume
-    from core.shared_config import read_jobs, update_job
 
     job_url = body.job_url
     instruction = body.instruction
 
-    jobs = read_jobs()
+    jobs = db.read_jobs()
     job = jobs.get(job_url)
     if not job:
         return api_error("not_found", "Job not found", 404)
 
-    description = job.get("description", "")
+    description = job.get("description") or ""
+    if not description.strip():
+        return api_error("missing_description", "Collect the full job description before tailoring.")
+    if job.get("status") == "in_progress":
+        return api_error("application_running", "Wait for the current application to finish.", 409)
     options = body.options.model_dump()
 
     try:
         # The instruction goes in its own prompt slot; it used to be appended to the job description
         result = await tailor_resume(job_url, description, options, refinement=instruction)
-        update_job(job_url, tailored_resume_path=result["path"])
+        await _save_tailoring(job, result["path"])
         return {"success": True, "content": result["content"], "path": result["path"],
                 "warnings": result.get("warnings", [])}
     except Exception as e:
         return api_error("tailor_error", str(e), 500)
+
+
+async def _save_tailoring(job: dict, path: str) -> None:
+    from resume.skill_suggestions import suggest_skills
+    from resume.tailor import tailoring_fingerprint
+
+    description = job.get("description") or ""
+    expected = {"status": job.get("status"), "description": description}
+    fingerprint = tailoring_fingerprint(description, path)
+    if not db.update_job(job["url"], if_unchanged=expected,
+                         tailored_resume_path=path, tailoring_fingerprint=fingerprint,
+                         skills_to_consider=[]):
+        raise ValueError("The job changed while tailoring. Generate the resume again.")
+    settings = load_llm_settings()
+    if not settings.get("provider"):
+        return
+    try:
+        suggestions = await asyncio.wait_for(
+            suggest_skills(description, load_profile().get("skills", []), settings), timeout=45,
+        )
+        db.update_job(job["url"], if_unchanged={**expected, "tailoring_fingerprint": fingerprint},
+                      skills_to_consider=suggestions)
+    except Exception as error:
+        _log.info("Optional skill suggestions unavailable: %s", type(error).__name__)
 
 
 @router.post("/resume/tailor/get-by-url")

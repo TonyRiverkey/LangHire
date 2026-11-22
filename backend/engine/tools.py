@@ -70,15 +70,17 @@ class AgentReport:
     prefilled: list[str] = field(default_factory=list)
     missing_from_text: list[str] = field(default_factory=list)  # parsed when the tool was not called
     submit_clicks: int = 0   # test mode: clicks on a final-submit control
+    uploaded_paths: set[str] = field(default_factory=set)
     intercepted: int = 0     # test mode: application requests blocked by the guard
 
 
-def build_apply_tools(report: AgentReport, profile: dict, resume_path: str = ""):
+def build_apply_tools(report: AgentReport, profile: dict, resume_path: str = "", *,
+                      reviewed: bool = False, cover_path: str = ""):
     """Tools for an application agent; results land in `report`."""
     from browser_use import Tools
     from browser_use.agent.views import ActionResult
 
-    tools: Tools = Tools()
+    tools: Tools = Tools(exclude_actions=["evaluate", "search", "upload_file"] if reviewed else [])
 
     @tools.action(
         "Call this ONCE when the application is finished or cannot continue, before calling done. "
@@ -132,13 +134,26 @@ def build_apply_tools(report: AgentReport, profile: dict, resume_path: str = "")
         "a file path into a field.",
     )
     async def upload_resume(browser_session):
+        return await attach(browser_session, resume_path)
+
+    async def attach(browser_session, path: str, *, cover_letter: bool = False):
+        from pathlib import Path
         from .upload import upload_resume_any_frame
         try:
-            msg = await upload_resume_any_frame(browser_session, resume_path)
+            msg = await upload_resume_any_frame(browser_session, path, cover_letter=cover_letter)
         except Exception as e:
-            msg = f"Resume upload failed: {e}. Try upload_file on the resume field instead."
+            fallback = "" if reviewed else " Try upload_file on the resume field instead."
+            msg = f"Document upload failed: {e}.{fallback}"
+        label = "Cover letter" if cover_letter else "Resume"
+        if msg.startswith(f"{label} {Path(path).name} "):
+            report.uploaded_paths.add(path)
         events.emit("field_filled", f"📎 {msg}"[:200])
         return ActionResult(extracted_content=msg, long_term_memory=msg[:200])
+
+    if cover_path:
+        @tools.action("Attach the job's reviewed cover-letter PDF to the dedicated Cover Letter field.")
+        async def upload_cover_letter(browser_session):
+            return await attach(browser_session, cover_path, cover_letter=True)
 
     _guard_file_inputs(tools)
     return tools

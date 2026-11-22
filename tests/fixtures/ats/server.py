@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import hashlib
 import json
 import re
 import threading
@@ -54,7 +55,12 @@ input,select,textarea{{width:100%;padding:6px}} .req{{color:#b00}} button{{margi
 
 def _posting(job_id: str) -> str:
     j = JOBS[job_id]
-    body = (f"<h1>{html.escape(j['title'])}</h1><p><b>{html.escape(j['company'])}</b> — {html.escape(j['location'])}</p>"
+    details = json.dumps({
+        "@type": "JobPosting", "title": j["title"], "hiringOrganization": {"name": j["company"]},
+        "jobLocation": {"address": j["location"]}, "description": DESCRIPTION,
+    })
+    body = (f'<script type="application/ld+json">{details}</script>'
+            f"<h1>{html.escape(j['title'])}</h1><p><b>{html.escape(j['company'])}</b> — {html.escape(j['location'])}</p>"
             f"{DESCRIPTION}<p><a id='apply' href='/jobs/{job_id}/apply'>Apply for this job</a></p>")
     return PAGE.format(title=f"{j['title']} at {j['company']}", body=body)
 
@@ -149,7 +155,7 @@ def _parse_body(handler: BaseHTTPRequestHandler) -> tuple[dict, dict]:
             payload = part.get_payload(decode=True) or b""
             if filename:
                 files[name] = {"filename": filename, "size": len(payload),
-                               "is_pdf": payload[:4] == b"%PDF"}
+                               "is_pdf": payload[:4] == b"%PDF", "sha256": hashlib.sha256(payload).hexdigest()}
             elif name:
                 fields[name] = payload.decode("utf-8", "replace")
     else:

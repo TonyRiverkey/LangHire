@@ -64,6 +64,17 @@ class Backend:
         except urllib.error.HTTPError as e:
             return json.loads(e.read() or b"null")
 
+    def prepare_documents(self, url: str, *, mode: str = "none", letter: str = "") -> dict:
+        result = self.call("POST", "/resume/tailor", {"job_urls": [url], "options": {"skills": True}})
+        assert result.get("success") and result["results"][0]["status"] == "done", result
+        state = self.call("POST", "/application-documents/prepare", {"job_url": url, "mode": mode, "letter": letter})
+        assert state.get("current") and not state["ready"], state
+        return state["current"]
+
+    def approve_documents(self, url: str, record: dict) -> None:
+        state = self.call("POST", "/application-documents/review", {"job_url": url, "prepared_at": record["prepared_at"]})
+        assert state.get("ready"), state
+
     def wait_idle(self, kind: str = "apply", timeout: float = 600) -> dict:
         path = "/apply/status" if kind == "apply" else "/jobs/collect/status"
         end = time.time() + timeout
@@ -172,6 +183,10 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+class _LoopbackV6Server(http.server.ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 @pytest.fixture(scope="session")
 def ui():
     """The production UI bundle (dist/), served statically. Build it first: npm run build."""
@@ -180,13 +195,19 @@ def ui():
         pytest.skip("dist/ not built: run `npm run build` first")
     # The backend only answers its own app's origins (CORS + an origin check); 127.0.0.1:1420
     # is the allowed dev origin, so the UI is served from exactly there.
+    handler = functools.partial(_QuietHandler, directory=str(dist))
+    host = "127.0.0.1"
     try:
-        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 1420),
-                                                functools.partial(_QuietHandler, directory=str(dist)))
-    except OSError as e:
-        pytest.fail(f"port 1420 is busy (is `npm run dev` running?): {e}")
+        httpd = http.server.ThreadingHTTPServer((host, 1420), handler)
+    except OSError:
+        # A developer may already have the IPv4 loopback occupied by the live app.
+        host = "localhost"
+        try:
+            httpd = _LoopbackV6Server(("::1", 1420), handler)
+        except OSError as error:
+            pytest.fail(f"Both loopback addresses on port 1420 are busy or unavailable: {error}")
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{httpd.server_address[1]}"
+    yield f"http://{host}:{httpd.server_address[1]}"
     httpd.shutdown()
 
 

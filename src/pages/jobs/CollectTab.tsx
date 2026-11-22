@@ -10,7 +10,7 @@ import {
   addJob,
 } from "../../lib/api";
 import { trackEvent, usageParams } from "../../lib/analytics";
-import type { PluginConfig } from "../../lib/types";
+import type { PluginConfig, CollectionReport } from "../../lib/types";
 import LogLine from "../../components/LogLine";
 import AutomationDialog from "../../components/AutomationDialog";
 import { ProgressBar } from "../../components/ui";
@@ -32,6 +32,7 @@ export default function CollectTab({ onJobsChanged }: CollectTabProps) {
   const [availableSources, setAvailableSources] = useState<PluginConfig[]>([]);
   const [collectLog, setCollectLog] = useState<string[]>([]);
   const [collected, setCollected] = useState(0);
+  const [report, setReport] = useState<CollectionReport | null>(null);
   const [collectFilters, setCollectFilters] = useState<Record<string, string>>({});
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
@@ -73,6 +74,7 @@ export default function CollectTab({ onJobsChanged }: CollectTabProps) {
   useEffect(() => {
     getCollectionStatus()
       .then((s) => {
+        setReport(s.report || null);
         if (s.running) {
           setCollecting(true);
           setCollectLog(s.log || []);
@@ -98,6 +100,7 @@ export default function CollectTab({ onJobsChanged }: CollectTabProps) {
         setCollecting(s.running);
         setCollectLog(s.log || []);
         setCollected(s.collected || 0);
+        setReport(s.report || null);
       })
       .catch(() => {});
   }, [onJobsChanged]);
@@ -146,6 +149,7 @@ export default function CollectTab({ onJobsChanged }: CollectTabProps) {
         collectFilters
       );
       if (res.success) {
+        setReport(null);
         setCollecting(true);
         setCollectLog([t("collector.startingCollection")]);
         trackEvent("collection_started", {
@@ -387,6 +391,20 @@ export default function CollectTab({ onJobsChanged }: CollectTabProps) {
               })}
             />
           </div>
+        )}
+        {report && (
+          <details className="mb-4 text-sm" open={!collecting}>
+            <summary className="cursor-pointer font-semibold">Collection results · {report.status}</summary>
+            <ul className="mt-2 space-y-2">
+              {report.locations.map((item, index) => (
+                <li key={`${item.title}-${item.location}-${index}`}>
+                  <strong>{item.title} · {item.location}</strong>
+                  <p>{item.saved} saved · {item.skipped} skipped · {item.status}</p>
+                  {item.reason && <p className="text-muted-foreground">{item.reason}</p>}
+                </li>
+              ))}
+            </ul>
+          </details>
         )}
         {/* Log output */}
         {collectLog.length > 0 && (

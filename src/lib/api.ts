@@ -2,7 +2,7 @@
  * API client for communicating with the Python backend sidecar.
  * The backend runs as a local FastAPI server on a dynamic port.
  */
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import type {
   CandidateProfile,
   LLMSettings,
@@ -64,6 +64,9 @@ export function getBackendInfo(): Promise<BackendInfo> {
       managed: false,
     });
   }
+  if (import.meta.env.DEV && !infoPromise && !isTauri()) {
+    return Promise.resolve({ port: DEFAULT_PORT, token: "", managed: false });
+  }
   if (!infoPromise) {
     infoPromise = invoke<BackendInfo | undefined>("get_backend_info")
       .then((info) => {
@@ -86,6 +89,7 @@ function invalidateBackendInfo() {
 }
 
 function baseUrlFor(info: BackendInfo): string {
+  if (import.meta.env.DEV && !info.token) return "/api";
   return `http://127.0.0.1:${portOverride ?? info.port ?? DEFAULT_PORT}`;
 }
 
@@ -108,7 +112,7 @@ export async function openLocalFile(path: string): Promise<void> {
 
 export { onBackendStatus, useBackendStatus, type BackendStatus } from "./backendStatus";
 
-async function request<T>(
+export async function request<T>(
   path: string,
   options: RequestInit = {},
   _retried = false
@@ -120,7 +124,7 @@ async function request<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -146,6 +150,15 @@ async function request<T>(
 }
 
 // ── Health ────────────────────────────────────────────────────────────────
+export async function getApplicationPdf(asset: string) {
+  const token = await getToken();
+  const response = await fetch(`${await getBaseUrl()}/application-documents/file/${asset.split("/").map(encodeURIComponent).join("/")}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw new Error("Could not open the PDF. Please prepare the documents again.");
+  return response.blob();
+}
+
 export async function checkHealth() {
   return request<HealthResponse>("/health");
 }
@@ -156,6 +169,14 @@ export async function getChromiumStatus() {
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────
+export async function uploadResume(file: File) {
+  return request<{ resume_path: string }>("/resume/upload", {
+    method: "POST",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+}
+
 export async function getProfile() {
   return request<CandidateProfile>("/profile");
 }

@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter
 
 from core import chromium
+from core.browser_profile import cookies_path
 from core.config import get_data_dir
 
 from .common import plugin_registry
@@ -34,10 +35,10 @@ def browser_profile_dir() -> str:
     data_dir = get_data_dir()
     profile = data_dir / "browser_profile"
     profile.mkdir(parents=True, exist_ok=True)
-    if not (profile / "Default" / "Cookies").exists():
+    if not cookies_path(profile).exists():
         for old_name in ["browser_profile_w1", "browser_profile_collect"]:
             old = data_dir / old_name
-            if (old / "Default" / "Cookies").exists():
+            if cookies_path(old).exists():
                 for item in old.iterdir():
                     dest = profile / item.name
                     if not dest.exists():
@@ -62,21 +63,13 @@ def _services() -> dict[str, dict]:
     return out
 
 
-def _cookie_db(profile_dir: str) -> Path | None:
-    for rel in (("Default", "Network", "Cookies"), ("Default", "Cookies")):
-        p = Path(profile_dir).joinpath(*rel)
-        if p.exists():
-            return p
-    return None
-
-
 @router.get("/auth/status")
 async def auth_status():
     services = _services()
     result = {name: {"logged_in": False, "display_name": s["display_name"], "countries": s.get("countries", ["ALL"])}
               for name, s in services.items()}
-    cookies_db = _cookie_db(browser_profile_dir())
-    if cookies_db is None:
+    cookies_db = cookies_path(browser_profile_dir())
+    if not cookies_db.is_file():
         return result
     try:
         with tempfile.TemporaryDirectory() as tmpdir:

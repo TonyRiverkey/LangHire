@@ -67,6 +67,22 @@ describe("api — base url & port", () => {
 });
 
 describe("api — auth token", () => {
+  it("uses the local proxy without reading or exposing a token in browser development", async () => {
+    const api = await loadApi();
+    const core = await import("@tauri-apps/api/core");
+    vi.stubEnv("DEV", true);
+    vi.mocked(core.isTauri).mockReturnValueOnce(false);
+    try {
+      await api.getProfile();
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/profile");
+      expect(core.invoke).not.toHaveBeenCalled();
+      const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers;
+      expect(headers).not.toHaveProperty("Authorization");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("sets the Authorization header using the invoke token", async () => {
     const api = await loadApi();
     await api.getProfile();
@@ -486,5 +502,28 @@ describe("api — backend info from the Tauri host", () => {
     expect(vi.mocked(core.invoke)).toHaveBeenCalledWith("open_file", {
       path: "C:/data/resume.pdf",
     });
+  });
+});
+
+it("uploads resume bytes with PDF content type and existing authentication", async () => {
+  const api = await loadApi();
+  const file = new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" });
+  fetchMock.mockResolvedValueOnce(jsonResponse({ resume_path: "/stored/resume.pdf" }));
+  expect(await api.uploadResume(file)).toEqual({ resume_path: "/stored/resume.pdf" });
+  expect(fetchMock).toHaveBeenCalledWith(`${DEFAULT_BASE}/resume/upload`, expect.objectContaining({
+    method: "POST",
+    body: file,
+    headers: expect.objectContaining({ "Content-Type": "application/pdf", Authorization: "Bearer test-token" }),
+  }));
+});
+
+it("fetches an application PDF with authentication and preserves binary content", async () => {
+  const api = await loadApi();
+  fetchMock.mockResolvedValueOnce(new Response("%PDF-1.4", { headers: { "Content-Type": "application/pdf" } }));
+  const blob = await api.getApplicationPdf("version/application.pdf");
+  expect(blob.type).toBe("application/pdf");
+  expect(await blob.text()).toBe("%PDF-1.4");
+  expect(fetchMock).toHaveBeenCalledWith(`${DEFAULT_BASE}/application-documents/file/version/application.pdf`, {
+    headers: { Authorization: "Bearer test-token" },
   });
 });

@@ -80,6 +80,7 @@ from core import chromium, db  # noqa: E402
 from engine.browsers import kill_profile_browsers  # noqa: E402
 from engine.data import prune_logs  # noqa: E402
 from engine.runner import manager  # noqa: E402
+from resume import application_documents, main_resume  # noqa: E402
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────
@@ -179,7 +180,8 @@ async def _validation_error(request, exc: RequestValidationError):
 
 
 for _router in (system.router, settings_api.router, jobs.router, runs.router, auth_api.router,
-                memory_api.router, content.router, plugins.router):
+                memory_api.router, content.router, plugins.router, application_documents.router,
+                main_resume.router):
     app.include_router(_router)
 
 

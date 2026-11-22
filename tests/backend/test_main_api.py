@@ -540,6 +540,52 @@ class TestWorkerStatus:
         assert body["workers"] == 1
 
 
+class TestCollectionReports:
+    @pytest.mark.parametrize("statuses,expected", [
+        (["complete", "complete"], "complete"),
+        (["complete", "failed"], "partial"),
+        (["blocked", "blocked"], "failed"),
+    ])
+    async def test_collection_reports_actual_city_outcomes(self, auth_client, monkeypatch, statuses, expected):
+        from core.config import save_profile
+        from engine import linkedin, prompts
+        from engine.collect import _run_linkedin
+        from engine.events import RunContext
+
+        profile = {"target_locations": ["Vancouver, BC", "Victoria, BC"]}
+        save_profile(profile)
+
+        async def collect(plugin, title, profile, cap, filters, ctx, report):
+            for location, status in zip(profile["target_locations"], statuses):
+                saved = int(status == "complete")
+                ctx.counters["collected"] += saved
+                report["locations"].append({"location": location, "status": status, "saved": saved,
+                    "reason": "Verified quota" if saved else "Sign-in required"})
+
+        async def recover(profile):
+            pass
+
+        monkeypatch.setattr(linkedin, "collect_title", collect)
+        monkeypatch.setattr(linkedin, "recover_descriptions", recover)
+        ctx = RunContext("test", "collect", counters={"collected": 0})
+        plugin = prompts.registry().get_by_name("linkedin")
+        if expected == "failed":
+            with pytest.raises(RuntimeError, match="Sign-in required"):
+                await _run_linkedin(ctx, plugin, ["HR"], profile, 2, {})
+        else:
+            await _run_linkedin(ctx, plugin, ["HR"], profile, 2, {})
+        report = ctx.counters["report"]
+        assert report["status"] == expected
+        assert bool(report["error"]) == (expected != "complete")
+
+    def test_collection_status_includes_city_report(self, auth_client, monkeypatch):
+        from engine.runner import manager
+
+        report = {"status": "partial", "locations": []}
+        monkeypatch.setattr(manager, "status", lambda kind: {"report": report})
+        assert auth_client.get("/jobs/collect/status").json()["report"] == report
+
+
 # ── Auth/login status (cookie inspection, no browser launched) ────────────────
 class TestAuthStatus:
     def test_auth_status_no_cookies(self, auth_client):
@@ -634,6 +680,13 @@ class TestLLMEndpoints:
 
 
 # ── Resume tailoring: validation branch (no LLM / no tailoring invoked) ───────
+def test_applying_requires_a_job_specific_draft(auth_client):
+    assert not auth_client.post("/apply/start", json={}).json()["success"]
+    result = auth_client.post("/apply/start", json={"job_url": "https://example.com/job"}).json()
+    assert result["success"] is False
+    assert "selected job" in result["message"]
+
+
 class TestResumeTailor:
     def test_tailor_requires_job_urls(self, auth_client):
         resp = auth_client.post("/resume/tailor", json={})

@@ -43,6 +43,26 @@ from resume.tailor import (
 
 # ── PDF builders ─────────────────────────────────────────────────────────────
 
+def test_application_resume_headings_and_stale_pdf(data_dir):
+    doc = fitz.open()
+    page = doc.new_page()
+    for index, line in enumerate(("Professional Summary", "Example candidate summary", "Core Expertise",
+                                  "Python", "Selected AI Projects", "Example project",
+                                  "Education and Certifications", "Example qualification")):
+        page.insert_text((48, 60 + index * 30), line)
+    sections = _extract_sections(doc)
+    doc.close()
+    assert [s["section_type"] for s in sections] == ["overview", "skills", "projects", "education"]
+    url = "https://example.com/job"
+    path = tailor._get_tailored_dir() / f"{_url_hash(url)}.pdf"
+    path.write_bytes(b"reviewed pdf")
+    job = {"url": url, "description": "Platform role", "tailored_resume_path": str(path),
+           "tailoring_fingerprint": tailor.tailoring_fingerprint("Platform role", str(path))}
+    assert tailor.verified_tailored_path(job) == str(path)
+    assert tailor.verified_tailored_path({**job, "description": "Changed job"}) is None
+    path.write_bytes(b"changed pdf")
+    assert tailor.verified_tailored_path(job) is None
+
 def _make_pdf(path: Path, blocks: list[tuple[float, float, str]]):
     """Write a single-page PDF placing each (x, y, text) string as a block.
 
