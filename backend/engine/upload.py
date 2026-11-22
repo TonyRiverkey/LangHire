@@ -29,7 +29,7 @@ _FIND_JS = r"""(() => {
   walk(document);
   const text = (el) => {
     let t = [el.id, el.name, el.getAttribute('aria-label'), el.getAttribute('data-qa'), el.accept].join(' ');
-    if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) t += ' ' + l.innerText; }
+    for (const label of el.labels || []) t += ' ' + label.innerText;
     let p = el.parentElement;
     for (let i = 0; p && i < 4; i++, p = p.parentElement) t += ' ' + (p.getAttribute('aria-label') || '') + ' ' + (p.id || '');
     const box = el.closest('fieldset, .field, .application-question, [class*=upload], [class*=field]');
@@ -41,10 +41,11 @@ _FIND_JS = r"""(() => {
   all.forEach((el, i) => {
     if (el.disabled) return;
     const t = text(el);
-    const cover = /cover[ _-]*letter|coverletter/.test(t);
-    if (coverLetter && !cover) return;
-    if (!coverLetter && /cover|letter|transcript|portfolio|photo|avatar|image/.test(t)) return;
-    let s = coverLetter || /resume|cv\b|curriculum/.test(t) ? 10 : 0;
+    const cover = /cover[ _-]*letter/.test(t);
+    const resume = /resume|cv\b|curriculum/.test(t);
+    if (/transcript|portfolio|photo|avatar|image/.test(t)) return;
+    if (coverLetter ? !cover : (cover && !resume)) return;
+    let s = coverLetter ? (resume ? 5 : 10) : (resume ? 10 : 0);
     if (/pdf|doc/.test(el.accept || '')) s += 1;
     if (s > bestScore) { bestScore = s; best = el; }
   });

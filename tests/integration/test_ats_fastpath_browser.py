@@ -80,3 +80,39 @@ def test_generic_autocomplete_prefill(ats_server, tmp_path):
     out = asyncio.run(_fill(f"{ats_server}/jobs/gh-1/apply", "https://careers.example.com/apply", tmp_path))
     assert out["values"]["first_name"] == "Jordan"
     assert out["values"]["email"] == "jordan.rivera@example.com"
+
+
+async def test_reviewed_resume_and_separate_letter_go_to_their_own_fields(ats_server, tmp_path):
+    from browser_use import BrowserSession
+    from engine.upload import upload_resume_any_frame
+    from resume.application_documents import text_pdf
+
+    resume = tmp_path / "reviewed-resume.pdf"
+    letter = tmp_path / "reviewed-letter.pdf"
+    text_pdf("Approved resume", resume)
+    text_pdf("Approved job-specific letter", letter)
+    session = BrowserSession(headless=True, user_data_dir=str(tmp_path / "profile"))
+    await session.start()
+    try:
+        url = f"{ats_server}/jobs/gh-1/apply"
+        page = await session.get_current_page() or await session.new_page(url)
+        await page.goto(url)
+        await page.evaluate("""() => {
+          document.forms[0].insertAdjacentHTML('afterbegin',
+            '<label>Cover letter <input type="file" name="attachment" accept=".pdf"></label>');
+        }""")
+        assert resume.name in await upload_resume_any_frame(session, str(resume))
+        assert letter.name in await upload_resume_any_frame(session, str(letter), cover_letter=True)
+        assert await page.evaluate("() => document.querySelector('[name=resume]').files[0].name") == resume.name
+        assert await page.evaluate("() => document.querySelector('[name=attachment]').files[0].name") == letter.name
+
+        await page.evaluate("""() => {
+          document.querySelector('[name=attachment]').parentElement.remove();
+          document.querySelector('[name=resume]').parentElement.prepend('Combined resume and cover letter ');
+        }""")
+        combined = tmp_path / "reviewed-combined.pdf"
+        text_pdf("Approved combined document", combined)
+        assert combined.name in await upload_resume_any_frame(session, str(combined))
+        assert await page.evaluate("() => document.querySelector('[name=resume]').files[0].name") == combined.name
+    finally:
+        await session.kill()
