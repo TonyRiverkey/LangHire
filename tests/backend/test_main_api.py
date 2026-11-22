@@ -17,6 +17,7 @@ Auth model (see ``_AuthMiddleware`` in ``backend/main.py``):
 the value the module actually loaded.
 """
 import os
+import asyncio
 
 # Pin the auth token BEFORE importing the backend so the middleware uses a
 # value we know. main.py reads JOB_APPLICANT_TOKEN at import time.
@@ -526,6 +527,46 @@ class TestWorkerStatus:
         body = auth_client.get("/apply/status").json()
         assert body["running"] is False
         assert body["workers"] == 1
+
+
+class TestCollectionReports:
+    @pytest.mark.parametrize("statuses,expected", [
+        (["complete", "complete"], "complete"),
+        (["complete", "failed"], "partial"),
+        (["blocked", "blocked"], "failed"),
+    ])
+    def test_collection_reports_actual_city_outcomes(self, auth_client, monkeypatch, statuses, expected):
+        from cli import collect_jobs
+        factories = []
+        monkeypatch.setattr(main, "_collection_status", {"running": False, "log": []})
+        monkeypatch.setattr(main, "_kill_browser_processes", lambda: None)
+        monkeypatch.setattr(main, "_run_async_in_thread", lambda factory, status: factories.append(factory))
+
+        async def collect(*args, report, should_stop, **kwargs):
+            assert callable(should_stop)
+            for location, status in zip(("Vancouver, BC", "Victoria, BC"), statuses):
+                report["locations"].append({"location": location, "status": status,
+                    "saved": int(status == "complete"), "reason": "Verified quota" if status == "complete" else "Sign-in required"})
+            return []
+        monkeypatch.setattr(collect_jobs, "collect_for_title", collect)
+        assert auth_client.post("/jobs/collect", json={"title": "HR", "max_jobs": 2}).json()["success"]
+        if expected == "failed":
+            with pytest.raises(RuntimeError, match="Sign-in required"):
+                asyncio.run(factories[0]())
+        else:
+            asyncio.run(factories[0]())
+        report = main._collection_status["report"]
+        assert report["status"] == expected
+        assert bool(report["error"]) == (expected != "complete")
+        assert auth_client.get("/jobs/collect/status").json()["report"] == report
+
+    def test_cooperative_stop_does_not_cancel_other_tasks_or_kill_other_browsers(self, monkeypatch):
+        def unexpected_kill():
+            raise AssertionError("Collection should use its own runner cleanup")
+        monkeypatch.setattr(main, "_kill_browser_processes", unexpected_kill)
+        status = {"_cooperative_stop": True, "log": []}
+        main._force_stop(status)
+        assert status["cancel_requested"] is True
 
 
 # ── Auth/login status (cookie inspection, no browser launched) ────────────────

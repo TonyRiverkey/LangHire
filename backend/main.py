@@ -31,7 +31,7 @@ from core.config import get_data_dir, load_settings, save_settings, load_profile
 from core.config import load_llm_settings, save_llm_settings
 from core.resume_upload import upload_resume
 from core.profile_extraction import parse_resume_to_profile
-from core.browser_profile import cookies_path
+from core.browser_profile import cookies_path, uses_browser_profile
 
 # Project root for data files
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -665,8 +665,9 @@ def _run_async_in_thread(coro_factory, status_dict):
                     status_dict["log"].append("🛑 Stopped by user")
                     status_dict["error"] = "cancelled"
                 else:
-                    status_dict["log"].append("✅ Finished successfully")
-                    status_dict["error"] = None
+                    report = status_dict.get("report", {})
+                    status_dict["log"].append("⚠️ Collection partially completed" if report.get("status") == "partial" else "✅ Finished successfully")
+                    status_dict["error"] = report.get("error")
         except asyncio.CancelledError:
             with _status_lock:
                 status_dict["log"].append("🛑 Stopped by user")
@@ -701,12 +702,12 @@ def _kill_browser_processes():
     Uses psutil for cross-platform support (macOS, Linux, Windows)."""
     try:
         import psutil
-        target = "langhire/browser_profile"
+        target = get_data_dir() / "browser_profile"
         procs_to_kill = []
         for proc in psutil.process_iter(["pid", "name", "cmdline"]):
             try:
                 cmdline = proc.info.get("cmdline") or []
-                if any(target in arg for arg in cmdline):
+                if uses_browser_profile(cmdline, target):
                     procs_to_kill.append(proc)
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
@@ -747,6 +748,9 @@ def _force_stop(status_dict):
     """Force-stop a running operation: cancel async tasks and kill browser processes."""
     with _status_lock:
         status_dict["cancel_requested"] = True
+        if status_dict.get("_cooperative_stop"):
+            status_dict["log"].append("🛑 Stopping collection; saved jobs will be retained")
+            return
 
     # Cancel all tasks in the worker's event loop
     loop = status_dict.get("_loop")
@@ -784,83 +788,47 @@ async def start_collection(body: CollectRequest):
     title = body.title
     max_jobs = body.max_jobs
     filters = body.filters or {}
-    _collection_status = {"running": True, "title": title or "all titles", "log": ["Starting collection... This may take several minutes per job title."], "collected": 0, "max_jobs": max_jobs}
+    _collection_status = {"running": True, "title": title or "all titles", "log": ["Starting collection... This may take several minutes per job title."], "collected": 0, "max_jobs": max_jobs, "_cooperative_stop": True}
 
     async def _do_collect():
-        """Run collection logic directly, bypassing argparse."""
-        from core.shared_config import LOGS_DIR, read_jobs, refresh_credentials, credential_refresh_loop
+        from core.shared_config import LOGS_DIR, read_jobs, credential_refresh_loop
         from cli import collect_jobs
-        import core.shared_config as _config
-
-        # Override config.get_llm with the user's UI-configured LLM
-        llm_settings = load_llm_settings()
-        if llm_settings.get("provider"):
-            from core.llm_factory import create_llm
-            _config.get_llm = lambda: create_llm(llm_settings)
-            print(f"🤖 Using {llm_settings['provider']} LLM from settings")
-
-        # Load profile from the app data dir (set via UI), not the project root
         profile = load_profile()
-        jobs = read_jobs()
-        LOGS_DIR.mkdir(exist_ok=True)
-
         titles = [title] if title else profile.get("target_job_titles", [])
+        if not titles:
+            raise ValueError("Set target job titles before collecting jobs.")
+        LOGS_DIR.mkdir(exist_ok=True)
+        report = {"status": "running", "locations": [], "error": None}
+        _collection_status["report"] = report
+        _collection_status["_cooperative_stop"] = True
+        should_stop = lambda: bool(_collection_status.get("cancel_requested"))
         cred_task = asyncio.create_task(credential_refresh_loop(CREDENTIAL_REFRESH_MINUTES))
+        try:
+            for selected_title in titles:
+                if should_stop():
+                    raise asyncio.CancelledError()
+                await collect_jobs.collect_for_title(selected_title, read_jobs(), profile,
+                    max_jobs=max_jobs, filters=filters, should_stop=should_stop, report=report)
+                _collection_status["collected"] = sum(item["saved"] for item in report["locations"])
+            incomplete = [item for item in report["locations"] if item["status"] != "complete"]
+            if incomplete:
+                report["status"] = "partial" if any(item["saved"] for item in report["locations"]) else "failed"
+                report["error"] = "; ".join(f"{item['location']}: {item['reason']}" for item in incomplete)
+                if report["status"] == "failed":
+                    raise RuntimeError(report["error"])
+            else:
+                report["status"] = "complete"
+            print(f"Collection {report['status']}: {_collection_status['collected']} source-backed jobs collected")
+        except asyncio.CancelledError:
+            report.update(status="cancelled", error="Stopped; saved jobs retained.")
+            raise
+        except Exception as error:
+            report.update(status="failed", error=str(error))
+            raise
+        finally:
+            cred_task.cancel()
+            _collection_status["collected"] = sum(item["saved"] for item in report["locations"])
 
-        for i, t in enumerate(titles):
-            if _collection_status.get("cancel_requested"):
-                print("🛑 Stop requested — halting collection")
-                break
-            print(f"\n{'='*60}")
-            print(f"[{i+1}/{len(titles)}] Collecting: {t}")
-            print(f"{'='*60}")
-            try:
-                found = await collect_jobs.collect_for_title(t, jobs, profile, max_jobs=max_jobs, filters=filters)
-                jobs = read_jobs()
-                # Don't increment collected here — it's already updated by the stdout/log handler
-                # parsing "total this title: N" and "N jobs collected" from agent output
-                print(f"  Found {len(found)} new jobs (total: {len(jobs)})")
-            except Exception as e:
-                print(f"  Error: {e}")
-
-        # Phase 2: Fetch descriptions for collected jobs
-        if not _collection_status.get("cancel_requested"):
-            from resume.skill_suggestions import suggest_skills
-            from core.shared_config import update_job as _upd
-            jobs = read_jobs()
-            needs_desc = [
-                (url, j) for url, j in jobs.items()
-                if j.get("status") == "pending" and "skills_to_consider" not in j
-            ]
-            if needs_desc:
-                print(f"\n📋 Reviewing descriptions and skills for {len(needs_desc)} jobs...")
-                for i, (url, job) in enumerate(needs_desc):
-                    if _collection_status.get("cancel_requested"):
-                        print("🛑 Stop requested — halting description fetch")
-                        break
-                    job_title = job.get("title", "Unknown")
-                    company = job.get("company", "Unknown")
-                    print(f"  [{i+1}/{len(needs_desc)}] {job_title} at {company}...")
-                    try:
-                        desc = job.get("description") or await collect_jobs.fetch_description_for_job(url, job)
-                        if desc:
-                            _upd(url, description=desc)
-                            suggestions = await suggest_skills(desc, profile.get("skills", []), llm_settings)
-                            _upd(url, skills_to_consider=suggestions)
-                            print(f"    ✅ Got description ({len(desc)} chars)")
-                        else:
-                            print(f"    ⚠️  No description extracted")
-                    except Exception as e:
-                        print(f"    ❌ Error: {e}")
-
-        cred_task.cancel()
-
-        # Summary
-        jobs = read_jobs()
-        easy = sum(1 for j in jobs.values() if j.get("easy_apply"))
-        pending = sum(1 for j in jobs.values() if j.get("status") == "pending")
-        descs = sum(1 for j in jobs.values() if j.get("description"))
-        print(f"\nCollection complete! Total: {len(jobs)} (Easy Apply: {easy}), Pending: {pending}, With descriptions: {descs}")
 
     def make_coro():
         return _do_collect()
@@ -887,6 +855,7 @@ async def collection_status():
             "error": _collection_status.get("error"),
             "finished_at": _collection_status.get("finished_at"),
             "run_id": _collection_status.get("run_id"),
+            "report": _collection_status.get("report"),
         }
 
 
