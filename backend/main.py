@@ -19,6 +19,9 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+if not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 try:
     from models import CollectRequest, ApplyRequest, DecayRequest, CleanupRequest
 except ImportError:
@@ -28,6 +31,7 @@ from core.config import get_data_dir, load_settings, save_settings, load_profile
 from core.config import load_llm_settings, save_llm_settings
 from core.resume_upload import upload_resume
 from core.profile_extraction import parse_resume_to_profile
+from core.browser_profile import cookies_path
 
 # Project root for data files
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -1197,11 +1201,11 @@ def _get_browser_profile_dir() -> str:
     profile.mkdir(parents=True, exist_ok=True)
 
     # Auto-migrate: if shared profile has no cookies but an old one does, copy it
-    if not (profile / "Default" / "Cookies").exists():
+    if not cookies_path(profile).exists():
         import shutil
         for old_name in ["browser_profile_w1", "browser_profile_collect"]:
             old = data_dir / old_name
-            if (old / "Default" / "Cookies").exists():
+            if cookies_path(old).exists():
                 for item in old.iterdir():
                     dest = profile / item.name
                     if not dest.exists():
@@ -1220,7 +1224,7 @@ async def auth_status():
     """Check if LinkedIn and Gmail sessions are valid by inspecting cookies."""
     import sqlite3
     profile_dir = _get_browser_profile_dir()
-    cookies_db = Path(profile_dir) / "Default" / "Cookies"
+    cookies_db = cookies_path(profile_dir)
 
     result = {"linkedin": {"logged_in": False}, "gmail": {"logged_in": False}}
 
