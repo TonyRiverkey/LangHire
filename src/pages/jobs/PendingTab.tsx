@@ -616,6 +616,30 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                           {job.company || t("jobItem.unknown")} ·{" "}
                           {job.location || "—"}
                         </p>
+                        {job.salary && <p className="mt-1 text-sm text-muted-foreground">{job.salary}</p>}
+                        {job.fit_review && (
+                          <details className="mt-2 text-sm text-muted-foreground">
+                            <summary className="cursor-pointer text-foreground">Fit review and profile questions</summary>
+                            <p className="mt-1">{job.fit_review.role_reason}</p>
+                            <p>{({
+                              unknown: "Salary needs confirmation",
+                              within_target: "Salary range meets your minimum",
+                              overlaps_target: "Salary range overlaps your minimum",
+                              at_or_below_minimum: "Salary range is at or below your minimum",
+                            })[job.fit_review.salary_fit]}</p>
+                            <ul className="mt-2 space-y-2">
+                              {job.fit_review.profile_questions.map((item, index) => (
+                                <li key={`${item.topic}-${index}`}>
+                                  <strong>{item.topic}</strong> — {item.question}
+                                  <blockquote className="mt-0.5 pl-2 border-l border-border">“{item.evidence}”</blockquote>
+                                </li>
+                              ))}
+                            </ul>
+                            {job.fit_review.cover_letter_instructions && (
+                              <p className="mt-2">Application document instructions: {job.fit_review.cover_letter_instructions}</p>
+                            )}
+                          </details>
+                        )}
                         {!!job.skills_to_consider?.length && (
                           <details className="mt-2 text-sm text-muted-foreground">
                             <summary className="cursor-pointer text-foreground">Skills to consider</summary>

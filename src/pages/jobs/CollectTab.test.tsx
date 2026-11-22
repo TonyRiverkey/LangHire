@@ -79,6 +79,18 @@ describe("CollectTab", () => {
     mockAddJob.mockResolvedValue({ success: true } as never);
   });
 
+  it("shows truthful per-city partial results independently of the console log", async () => {
+    mockStatus.mockResolvedValue({ ...idleStatus, report: {
+      status: "partial", locations: [{ title: "HR", location: "Victoria, BC", saved: 1,
+        skipped: 2, status: "partial", reason: "Search could not verify exhaustion." }],
+    } } as never);
+    render(<CollectTab onJobsChanged={onJobsChanged} />);
+    expect(await screen.findByText(/Collection results · partial/)).toBeInTheDocument();
+    expect(screen.getByText("HR · Victoria, BC")).toBeInTheDocument();
+    expect(screen.getByText("1 saved · 2 skipped · partial")).toBeInTheDocument();
+    expect(screen.getByText("Search could not verify exhaustion.")).toBeInTheDocument();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
