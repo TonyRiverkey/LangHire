@@ -11,7 +11,6 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
-  FileText,
   Zap,
   Download,
 } from "lucide-react";
@@ -20,14 +19,13 @@ import {
   getApplyStatus,
   getJobs,
   getMetricRuns,
-  getSettings,
   exportJobsCsv,
 } from "../../lib/api";
 import { trackEvent } from "../../lib/analytics";
 import LogLine from "../../components/LogLine";
 import ApplicationDocuments from "../../components/ApplicationDocuments";
 import { useTranslation } from "react-i18next";
-import type { Job, RunMetric, AppSettings } from "../../lib/types";
+import type { Job, RunMetric } from "../../lib/types";
 
 interface AppliedJobRow {
   job: Job;
@@ -49,7 +47,6 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
   // Applied jobs state
   const [appliedJobs, setAppliedJobs] = useState<AppliedJobRow[]>([]);
   const [expandedUrl, setExpandedUrl] = useState<string | null>(null);
-  const [resumePath, setResumePath] = useState<string>("");
 
   useEffect(() => {
     Promise.all([
@@ -63,14 +60,12 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
 
   async function loadAppliedJobs() {
     try {
-      const [applied, failed, metrics, settings] = await Promise.all([
+      const [applied, failed, metrics] = await Promise.all([
         getJobs({ status: "applied" }),
         getJobs({ status: "failed" }),
         getMetricRuns(200),
-        getSettings(),
       ]);
 
-      setResumePath((settings as AppSettings).resume_path || "");
 
       const allJobs = [...applied, ...failed];
       // Build a map of metrics by job_url for quick lookup
@@ -383,23 +378,7 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
                             </div>
                           </div>
 
-                          {/* Resume path */}
-                          {resumePath && (
-                            <div className="flex items-start gap-2">
-                              <FileText className="w-3.5 h-3.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-[11px] text-muted-foreground uppercase font-medium">
-                                  Resume
-                                </p>
-                                <p className="text-sm text-foreground truncate">
-                                  {resumePath}
-                                </p>
-                              </div>
-                            </div>
-                          )}
                         </div>
-
-                        <ApplicationDocuments jobUrl={row.job.url} historyOnly />
 
                         {/* Right column — metrics */}
                         {row.metric && (
@@ -464,6 +443,7 @@ export default function HistoryTab({ onJobsChanged }: HistoryTabProps) {
                           </div>
                         )}
                       </div>
+                      <ApplicationDocuments jobUrl={row.job.url} historyOnly />
                     </div>
                   )}
                 </div>

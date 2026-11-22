@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from core.config import get_data_dir, load_profile, load_settings, load_llm_settings
-from resume.tailor import verified_tailored_path, _wrap_text
+from resume.tailor import verified_tailored_path
 
 router = APIRouter(prefix="/application-documents", tags=["Application documents"])
 
@@ -35,17 +35,32 @@ def asset_path(asset):
 
 def text_pdf(text, path):
     with pymupdf.open() as doc:
+        font = pymupdf.Font("cjk")
         page = doc.new_page(width=612, height=792)
+        page.insert_font(fontname="document", fontbuffer=font.buffer)
         y = 54
         for paragraph in text.splitlines():
-            # Break unusually long tokens before metric-based wrapping.
-            paragraph = re.sub(r"\S{70,}", lambda m: " ".join(m[0][i:i+60] for i in range(0, len(m[0]), 60)), paragraph)
-            for line in _wrap_text(paragraph, 504, 11) or [""]:
+            lines, line = [], ""
+            for word in paragraph.split():
+                if line and font.text_length(line + " " + word, fontsize=11) > 504:
+                    lines.append(line)
+                    line = ""
+                if line:
+                    line += " "
+                for char in word:
+                    if font.text_length(line + char, fontsize=11) > 504:
+                        lines.append(line)
+                        line = ""
+                    line += char
+            lines.append(line)
+            for line in lines:
                 if y > 738:
                     page = doc.new_page(width=612, height=792)
+                    page.insert_font(fontname="document", fontbuffer=font.buffer)
                     y = 54
-                page.insert_text((54, y), line, fontsize=11)
+                page.insert_text((54, y), line, fontsize=11, fontname="document")
                 y += 15
+        doc.subset_fonts()
         doc.save(path)
 
 
@@ -160,9 +175,12 @@ async def prepare(body: PrepareRequest):
         mode = required if body.mode == "auto" else body.mode
         if (required != "none" and mode == "none") or (required == "combined" and mode != "combined"):
             raise ValueError("The selected format does not include the documents requested in this job description.")
+        context_hash = inputs_hash(job, mode, "")
         letter = "" if mode == "none" else (body.letter.strip() if body.letter is not None else await generate_letter(job))
-        if mode != "none" and not letter:
-            raise ValueError("A cover letter is required for the selected format.")
+        if mode != "none" and (not letter or len(letter) > 30000):
+            raise ValueError("The selected format requires a cover letter of at most 30,000 characters.")
+        if inputs_hash(get_job(body.job_url), mode, "") != context_hash:
+            raise ValueError("The job, profile, or resume changed while generating the letter. Please try again.")
         fingerprint = inputs_hash(job, mode, letter)
         # A fresh directory per preparation keeps all previous attempt files unchanged.
         version = uuid.uuid4().hex
@@ -221,20 +239,32 @@ def start_attempt(job):
     from core.shared_config import update_job
     job = get_job(job["url"])
     record = validated_documents(job)
-    attempt = {**record, "id": uuid.uuid4().hex, "started_at": datetime.now(timezone.utc).isoformat(), "status": "started"}
+    chosen = "combined" if record["mode"] == "combined" else "resume"
+    provided_assets = [file["asset"] for file in record["files"]
+                       if file["kind"] == chosen or (record["mode"] == "separate" and file["kind"] == "cover_letter")]
+    attempt = {**record, "id": uuid.uuid4().hex, "started_at": datetime.now(timezone.utc).isoformat(), "status": "started",
+               "provided_assets": provided_assets}
     attempts = [*job.get("application_attempts", []), attempt]
     update_job(job["url"], application_attempts=attempts)
-    chosen = "combined" if record["mode"] == "combined" else "resume"
     primary = next(str(asset_path(file["asset"])) for file in record["files"] if file["kind"] == chosen)
-    provided = [str(asset_path(file["asset"])) for file in record["files"]
-                if file["kind"] == chosen or (record["mode"] == "separate" and file["kind"] == "cover_letter")]
+    provided = [str(asset_path(asset)) for asset in provided_assets]
     return attempt, primary, provided
 
 
-def finish_attempt(url, attempt_id, status):
+def finish_attempt(url, attempt_id, status, history=None):
     from core.shared_config import update_job
     attempts = get_job(url).get("application_attempts", [])
     for attempt in attempts:
         if attempt["id"] == attempt_id:
             attempt.update(status=status, finished_at=datetime.now(timezone.utc).isoformat())
+            known_paths = {str(asset_path(file["asset"])): file["asset"] for file in attempt["files"]}
+            uploaded = set()
+            for step in history or []:
+                output = getattr(step, "model_output", None)
+                for action, outcome in zip(getattr(output, "action", []) or [], getattr(step, "result", []) or []):
+                    action = action.model_dump(exclude_none=True) if hasattr(action, "model_dump") else action
+                    upload = action.get("upload_file") if isinstance(action, dict) else None
+                    if upload and not getattr(outcome, "error", None) and upload.get("path") in known_paths:
+                        uploaded.add(known_paths[upload["path"]])
+            attempt["uploaded_assets"] = sorted(uploaded)
     update_job(url, application_attempts=attempts)

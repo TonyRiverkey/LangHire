@@ -39,10 +39,12 @@ describe("ApplicationDocuments", () => {
   it("keeps edited letter text separate until PDF preparation", async () => {
     vi.mocked(getDocuments).mockResolvedValue(prepared);
     const user = userEvent.setup();
-    render(<ApplicationDocuments jobUrl="https://example.com/b" />);
+    const onDirtyChange = vi.fn();
+    render(<ApplicationDocuments jobUrl="https://example.com/b" onDirtyChange={onDirtyChange} />);
     await user.click(screen.getByText("Application documents"));
     const letter = await screen.findByLabelText("This job’s cover letter");
     await user.clear(letter); await user.type(letter, "Dear Beta");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
     await user.click(screen.getByRole("checkbox"));
     expect(screen.getByRole("button", { name: "Approve documents for application" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Prepare application PDFs" }));

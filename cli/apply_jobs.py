@@ -160,6 +160,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
                f"Document format: {documents['mode']}. Primary upload file: {resume_path}. "
                "For separate files, upload the cover-letter PDF only to the cover-letter field; use the job-specific letter text for text fields. "
                "For combined format, upload the combined PDF containing the cover letter first and resume second. "
+               "Replace any old attachment already saved on the employer site with these reviewed files. If you cannot replace it, stop without submitting. "
                "If the employer requests a missing letter, a different document format, or changed document content, STOP without submitting "
                "and report the requirement so the user can prepare and review new files. Never reuse another job's letter or generate an unreviewed attachment.")
     agent_sensitive_data = {
@@ -274,6 +275,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
         register_done_callback=_agent_on_done,
     )
 
+    result = None
     try:
         result = await agent.run()
 
@@ -291,7 +293,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
 
         # Determine success/failure
         success = result.is_successful()
-        finish_attempt(url, attempt["id"], "applied" if success else "failed")
+        finish_attempt(url, attempt["id"], "applied" if success else "failed", result.history)
 
         # ── Memory extraction (self-learning) ─────────────────────────────
         mem_store = get_memory_store()
@@ -356,7 +358,7 @@ async def apply_to_job(job: dict, profile: dict, qa: dict, applied_labels: list[
 
     except Exception as e:
         error_str = str(e)
-        finish_attempt(url, attempt["id"], "failed")
+        finish_attempt(url, attempt["id"], "failed", getattr(result, "history", None))
         if "security token" in error_str.lower() or "expired" in error_str.lower():
             refresh_credentials()
             await save_job_status(url, "pending", "credentials_expired_retry")

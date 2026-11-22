@@ -482,3 +482,14 @@ it("uploads resume bytes with PDF content type and existing authentication", asy
     headers: expect.objectContaining({ "Content-Type": "application/pdf", Authorization: "Bearer test-token" }),
   }));
 });
+
+it("fetches an application PDF with authentication and preserves binary content", async () => {
+  const api = await loadApi();
+  fetchMock.mockResolvedValueOnce(new Response("%PDF-1.4", { headers: { "Content-Type": "application/pdf" } }));
+  const blob = await api.getApplicationPdf("version/application.pdf");
+  expect(blob.type).toBe("application/pdf");
+  expect(await blob.text()).toBe("%PDF-1.4");
+  expect(fetchMock).toHaveBeenCalledWith(`${DEFAULT_BASE}/application-documents/file/version/application.pdf`, {
+    headers: { Authorization: "Bearer test-token" },
+  });
+});

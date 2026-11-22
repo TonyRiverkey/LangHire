@@ -43,6 +43,19 @@ def test_required_format(text, mode):
     assert documents.required_mode(text) == mode
 
 
+def test_generated_pdf_preserves_unicode_and_paginates_long_text(tmp_path):
+    path = tmp_path / "letter.pdf"
+    line = "Martínez — I’m experienced in HR. " + "x" * 180
+    text = "\n".join([line] * 60)
+    documents.text_pdf(text, path)
+    with pymupdf.open(path) as pdf:
+        assert len(pdf) > 1
+        extracted = "".join(page.get_text() for page in pdf)
+        assert "".join(extracted.split()) == "".join(text.split())
+        for page in pdf:
+            assert all(0 <= block[0] < block[2] <= 612 and 0 <= block[1] < block[3] <= 792 for block in page.get_text("blocks"))
+
+
 def prepare(workflow, url="https://example.com/a", **fields):
     response = workflow.client.post("/application-documents/prepare", json={"job_url": url, **fields})
     assert response.status_code == 200, response.text
@@ -99,6 +112,17 @@ def test_document_record_cannot_be_reused_for_another_employer(workflow):
     with pytest.raises(ValueError): documents.validated_documents(workflow.jobs["https://example.com/b"])
 
 
+def test_attempt_records_only_successful_uploads_of_reviewed_files(workflow):
+    prepare(workflow)
+    approve(workflow)
+    attempt, primary, _ = documents.start_attempt(workflow.jobs["https://example.com/a"])
+    history = [SimpleNamespace(model_output=SimpleNamespace(action=[{"upload_file": {"path": primary}}]), result=[SimpleNamespace(error=None)]),
+               SimpleNamespace(model_output=SimpleNamespace(action=[{"upload_file": {"path": "/unreviewed.pdf"}}]), result=[SimpleNamespace(error=None)])]
+    documents.finish_attempt("https://example.com/a", attempt["id"], "applied", history)
+    saved = workflow.jobs["https://example.com/a"]["application_attempts"][0]
+    assert saved["uploaded_assets"] == [next(file["asset"] for file in attempt["files"] if file["kind"] == "combined")]
+
+
 @pytest.mark.parametrize("change", ["profile", "job", "resume", "file"])
 def test_changes_invalidate_review(workflow, change):
     state = prepare(workflow)
@@ -117,6 +141,24 @@ def test_missing_letter_or_combined_format_is_blocked(workflow):
     response = workflow.client.post("/application-documents/prepare", json={"job_url": "https://example.com/b", "letter": ""})
     assert response.status_code == 400
     assert workflow.client.get("/application-documents/file/not-a-version/resume.pdf").status_code == 404
+
+
+def test_profile_changes_during_generation_do_not_create_a_reviewable_letter(workflow, monkeypatch):
+    async def change_profile(job):
+        save_profile({"name": "Changed while AI was running"})
+        return "Letter generated from the old profile"
+    monkeypatch.setattr(documents, "generate_letter", change_profile)
+    response = workflow.client.post("/application-documents/prepare", json={"job_url": "https://example.com/a"})
+    assert response.status_code == 400
+    assert "application_documents" not in workflow.jobs["https://example.com/a"]
+
+
+def test_oversized_ai_letter_is_rejected(workflow, monkeypatch):
+    async def oversized(job): return "x" * 30001
+    monkeypatch.setattr(documents, "generate_letter", oversized)
+    response = workflow.client.post("/application-documents/prepare", json={"job_url": "https://example.com/a"})
+    assert response.status_code == 400
+    assert "application_documents" not in workflow.jobs["https://example.com/a"]
 
 
 @pytest.mark.asyncio

@@ -38,7 +38,7 @@ export default function MainResumeImprover({ jobUrl, skills }: { jobUrl: string;
       {item.skill in selected && <label className="block mt-1">Your actual experience with {item.skill}
         <textarea aria-label={`Your actual experience with ${item.skill}`} className="input-base mt-1" value={selected[item.skill]} disabled={busy} onChange={e => {
           setSelected({ ...selected, [item.skill]: e.target.value }); setDraft(null); setReviewed(false);
-        }} placeholder="Describe what you did; include results only if you can substantiate them." />
+        }} placeholder="Describe what you did, where, and when; include results only if you can substantiate them." />
       </label>}
     </div>)}
     <button className="btn-secondary" disabled={busy || !Object.keys(selected).length || Object.values(selected).some(value => value.trim().length < 10)} onClick={generate}>

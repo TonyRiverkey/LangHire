@@ -86,6 +86,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
 
   // Multi-select state
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
+  const [dirtyDocuments, setDirtyDocuments] = useState<Record<string, boolean>>({});
 
   // Status dropdown state
   const [statusMenuJob, setStatusMenuJob] = useState<string | null>(null);
@@ -584,7 +585,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                           </details>
                         )}
                         <MainResumeImprover jobUrl={job.url} skills={job.skills_to_consider || []} />
-                        <ApplicationDocuments jobUrl={job.url} />
+                        <ApplicationDocuments jobUrl={job.url} onDirtyChange={dirty => setDirtyDocuments(previous => previous[job.url] === dirty ? previous : { ...previous, [job.url]: dirty })} />
                         {job.error && (
                           <p
                             className="text-[13px] text-destructive mt-1 truncate"
@@ -631,7 +632,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                         <>
                           <button
                             onClick={() => handleApplySingle(job.url)}
-                            disabled={applyingUrl !== null}
+                            disabled={applyingUrl !== null || dirtyDocuments[job.url]}
                             title={
                               applyingUrl
                                 ? t("jobItem.applyRunningTitle")
@@ -817,7 +818,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
           </span>
           <button
             onClick={handleBatchApply}
-            disabled={batchApplying}
+            disabled={batchApplying || [...selectedJobs].some(url => dirtyDocuments[url])}
             className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold bg-foreground text-background hover:bg-foreground/90 disabled:opacity-40 transition-all"
           >
             {batchApplying ? (

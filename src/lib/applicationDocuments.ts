@@ -4,6 +4,8 @@ export interface DocumentFile { kind: string; name: string; asset: string }
 export interface DocumentRecord {
   mode: string; letter: string; files: DocumentFile[]; reviewed: boolean;
   id?: string; started_at?: string; status?: string;
+  uploaded_assets?: string[];
+  provided_assets?: string[];
 }
 export interface DocumentState {
   required_mode: string; current: DocumentRecord | null; ready: boolean; message: string;
