@@ -30,10 +30,12 @@ async def _verified_search_page(browser, url, city, date):
         page = await browser.new_page(url)
     else:
         await page.goto(url)
-    for _ in range(4):
+    for _ in range(15):
         state = await job_capture.search_state(browser, page=page)
         if job_capture.verified_search(state, city, date):
             return page, state
+        if state.get('location') and _ >= 3:
+            break
         await asyncio.sleep(1)
     if _blocked(state.get("url", "")):
         raise ValueError("LinkedIn sign-in or CAPTCHA blocked the search.")
@@ -130,6 +132,12 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
         if review["closed"] or review["role_fit"] != "relevant" or review["location_fit"] != "within_target":
             entry["skipped"] += 1
             entry["rejected"] += 1
+            entry['last_rejection'] = {'title': job['title'], 'company': job['company'],
+                'posting_location': job['location'], 'role_fit': review['role_fit'],
+                'role_reason': review['role_reason'], 'location_fit': review['location_fit'],
+                'location_evidence': review['location_evidence'], 'closed': review['closed']}
+            events.info(f"Skipped {job['title']} at {job['company']}: role={review['role_fit']}, "
+                        f"location={review['location_fit']}, closed={review['closed']}.")
             return "Skipped: closure, role or location is unsuitable or unverified."
         job.update(fit_review=review, salary=review["salary"]["evidence"], search_title=title,
                    status="pending", collected_at=datetime.now(timezone.utc).isoformat())
@@ -308,25 +316,27 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
 async def _read_open_posting(browser, url, *, page=None, city=None, search_evidence=None, navigate=False):
     # A job card can still show the previous posting immediately after navigation.
     needs_navigation = navigate
-    for attempt in range(2):
+    for attempt in range(7):
         try:
             if needs_navigation:
                 await page.goto(url)
                 needs_navigation = False
             if page is not None:
                 await page.evaluate(r"""() => {
-                  const area = document.querySelector('#job-details, .jobs-description, .show-more-less-html');
+                  const heading = Array.from(document.querySelectorAll('h2,h3')).find(el => el.innerText.trim() === 'About the job');
+                  const ai = heading?.parentElement?.parentElement?.querySelector('[data-testid="expandable-text-box"]');
+                  const area = document.querySelector('#job-details, .jobs-description, .show-more-less-html') || ai?.parentElement;
                   const button = area && Array.from(area.querySelectorAll('button')).find(b =>
-                    b.getClientRects().length && /^(?:see|show) more(?:,? .*job description)?$/i.test(
+                    b.getClientRects().length && /^(?:(?:see|show) more(?:,? .*job description)?|…\s*more)$/i.test(
                       (b.getAttribute('aria-label') || b.innerText).trim()));
                   if (button) button.click();
                 }""")
             return await job_capture.capture_posting(browser, city, page=page, expected_url=url,
                                                      search_evidence=search_evidence)
         except (ValueError, RuntimeError, TimeoutError) as error:
-            if attempt or "no longer accepting" in str(error):
+            if attempt == 6 or "no longer accepting" in str(error):
                 raise
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
 
 
 async def recover_descriptions(profile):

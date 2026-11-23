@@ -17,11 +17,21 @@ _log = logging.getLogger("engine")
 
 LINKEDIN_CARDS_JS = r"""() => {
   const cards = document.querySelectorAll(
-    'ul.jobs-search__results-list li, div.base-card, li.jobs-search-results__list-item, div.job-card-container, li[data-occludable-job-id]');
+    'ul.jobs-search__results-list li, div.base-card, li.jobs-search-results__list-item, div.job-card-container, li[data-occludable-job-id], [role="button"][componentkey^="job-card-component-ref-"]');
   const out = [], seen = new Set();
   const txt = el => el ? el.innerText.replace(/\s+/g, ' ').trim() : '';
   for (const c of cards) {
     const a = c.querySelector('a.base-card__full-link, a.job-card-list__title, a.job-card-container__link, a[href*="/jobs/view/"]');
+    const id = c.getAttribute('componentkey')?.match(/^job-card-component-ref-(\d+)$/)?.[1];
+    if (!a && id) {
+      const url = 'https://www.linkedin.com/jobs/view/' + id + '/';
+      if (seen.has(url)) continue;
+      seen.add(url);
+      const lines = Array.from(c.querySelectorAll('p')).map(txt).filter(Boolean);
+      out.push({url, title:(lines[0] || '').replace(/^(?:Selected,?\s*)/i,'').replace(/\s*\(Verified job\).*$/i,''),
+        company:lines[1] || '', location:lines[2] || '', easy_apply:/easy apply/i.test(c.innerText || '')});
+      continue;
+    }
     if (!a || !a.href || seen.has(a.href)) continue;
     seen.add(a.href);
     out.push({

@@ -75,3 +75,13 @@ async def test_copilot_factory_model_is_used_without_contact_details_or_profile_
     assert "private@example.test" not in prompt
     assert "Private Name" not in prompt
     assert profile == original
+
+
+async def test_fit_evidence_is_corrected_once_without_loosening_validation():
+    invalid=review();invalid.location_evidence='Located in Victoria, British Columbia'
+    llm=SimpleNamespace(ainvoke=AsyncMock(side_effect=[SimpleNamespace(completion=invalid),SimpleNamespace(completion=review())]))
+    result=await review_job(posting(),PROFILE,llm)
+    assert result['location_fit']=='within_target' and llm.ainvoke.await_count==2
+    llm=SimpleNamespace(ainvoke=AsyncMock(return_value=SimpleNamespace(completion=invalid)))
+    result=await review_job(posting(),PROFILE,llm)
+    assert result['location_fit']=='uncertain' and llm.ainvoke.await_count==2

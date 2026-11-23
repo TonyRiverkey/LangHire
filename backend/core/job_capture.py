@@ -7,6 +7,28 @@ from urllib.parse import parse_qs, urlsplit
 CAPTURE_SCRIPT = r"""() => {
   const first = (selectors, root = document) => selectors.map(s => root.querySelector(s)).find(Boolean);
   const text = el => el ? (el.innerText || el.textContent || '').trim() : '';
+  // AI-powered search uses semantic component keys and a linked detail title.
+  const about = Array.from(document.querySelectorAll('h2,h3')).find(el => text(el) === 'About the job');
+  const aiDescription = about?.parentElement?.parentElement?.querySelector('[data-testid="expandable-text-box"]');
+  const aiTitle = Array.from(document.querySelectorAll('a[href*="/jobs/view/"]'))
+    .find(el => el.getClientRects().length && text(el) && !el.closest('[componentkey^="job-card-component-ref-"]'));
+  if (aiDescription && aiTitle) {
+    let header = aiTitle.parentElement;
+    while (header && header !== document.body && !header.querySelector('a[aria-label^="Company,"]')) header = header.parentElement;
+    const companyLink = header?.querySelector('a[aria-label^="Company,"]');
+    const companyName = companyLink?.getAttribute('aria-label').replace(/^Company,\s*/, '').replace(/\.$/,'') || '';
+    const headerLines = Array.from(header?.querySelectorAll('p') || []).map(text).filter(Boolean);
+    const metadata = headerLines.find(value => value.includes('·')) || '';
+    // Standalone pages render the title as plain text; work-mode chips also link to /jobs/view/.
+    const titleText = headerLines.find(value => value !== companyName && value !== metadata &&
+      !/^(?:on-site|hybrid|remote|full-time|part-time|contract|temporary|apply|save)$/i.test(value) && !value.includes('·')) || '';
+    const expand = aiDescription.parentElement.querySelector('[data-testid="expandable-text-button"]');
+    return {page_url:window.location.href, title:titleText, company:companyName,
+      location:metadata.split('·')[0].trim(), metadata:text(header), description:text(aiDescription),
+      source_job_url:aiTitle.href, canonical_url:'', standalone_detail:false,
+      description_collapsed:!!(expand && expand.getClientRects().length && /more/i.test(text(expand))),
+      search_location:'', easy_apply:/easy apply/i.test(text(header))};
+  }
   const description = first(['#job-details', '.jobs-description__content',
     '.jobs-description-content__text', '.show-more-less-html__markup']);
   const card = first(['.job-details-jobs-unified-top-card__container--two-pane',
@@ -41,12 +63,17 @@ LOCATION_INPUT = 'input[id*="jobs-search-box-location"], input[aria-label*="City
 SEARCH_STATE_SCRIPT = r"""(locationSelector) => {
   const visible = el => el.getClientRects().length > 0;
   const input = Array.from(document.querySelectorAll(locationSelector)).find(visible);
+  const locationButton = Array.from(document.querySelectorAll('[role="button"][aria-label^="Location "]')).find(visible);
   const controls = Array.from(document.querySelectorAll(
     'button[aria-pressed="true"], button[aria-expanded], [aria-checked="true"], button.jobs-search-dropdown__button'))
     .filter(visible).flatMap(el => [el.innerText.trim(), el.getAttribute('aria-label') || '']);
+  for (const checkbox of document.querySelectorAll('input[type="checkbox"]:checked')) {
+    const container = checkbox.closest('[aria-label^="Filter by "]');
+    if (container && visible(container)) controls.push(container.getAttribute('aria-label').replace(/^Filter by /, ''));
+  }
   const guestLocations = Array.from(document.querySelectorAll('.job-search-card__location'))
     .filter(visible).map(el => el.innerText.trim());
-  return {location: input?.value || '', dates: controls, url: location.href, guest_locations: guestLocations,
+  return {location: input?.value || locationButton?.getAttribute('aria-label').replace(/^Location /, '') || '', dates: controls, url: location.href, guest_locations: guestLocations,
     geo_id: input?.closest('form')?.querySelector('input[name="geoId"]')?.value || '',
     text: (document.querySelector('main') || document.body)?.innerText || ''};
 }"""
