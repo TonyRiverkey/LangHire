@@ -181,6 +181,7 @@ DEFAULT_SETTINGS = {
     "browser_cdp_url": "",            # e.g. http://127.0.0.1:9222 to drive your own Chrome
     "email_otp_via_gmail": False,     # let the agent read Gmail for verification codes
     "test_mode": False,               # click Submit but intercept the request: nothing is sent
+    "minimum_match_score": 0,         # 0 disables automatic skipping; user configurable
 }
 
 
@@ -216,6 +217,8 @@ def save_settings(settings: dict):
         settings["log_retention_days"] = max(0, min(int(settings["log_retention_days"]), 365))
     if "daily_apply_cap" in settings:
         settings["daily_apply_cap"] = max(0, min(int(settings["daily_apply_cap"]), 500))
+    if 'minimum_match_score' in settings:
+        settings['minimum_match_score'] = max(0, min(int(settings['minimum_match_score']), 100))
     if "max_run_cost_usd" in settings:
         settings["max_run_cost_usd"] = max(0.0, min(float(settings["max_run_cost_usd"]), 1000.0))
     if "max_failures" in settings:

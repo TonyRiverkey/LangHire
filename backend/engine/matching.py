@@ -68,3 +68,23 @@ def match_score(job: dict, profile: dict) -> int:
     else:
         score = 0.45 * title + 0.4 * skills + 0.15 * loc
     return int(round(100 * max(0.0, min(1.0, score))))
+
+
+def minimum_match_score() -> int:
+    from core.config import load_settings
+    return max(0, min(100, int(load_settings().get('minimum_match_score', 0) or 0)))
+
+
+def score_updates(job: dict, profile: dict, minimum: int | None = None) -> dict:
+    """Retain low matches as skipped records; never reclassify application history."""
+    minimum = minimum_match_score() if minimum is None else minimum
+    score = match_score(job, profile)
+    updates = {'match_score': score}
+    status = job.get('status', 'pending')
+    if status in ('pending', 'failed', 'needs_input') and score < minimum:
+        updates.update(status='skipped', skip_source='match_threshold', skip_previous_status=status,
+                       skip_reason=f'Match {score}% is below the {minimum}% minimum.')
+    elif status == 'skipped' and job.get('skip_source') == 'match_threshold' and score >= minimum:
+        updates.update(status=job.get('skip_previous_status') or 'pending', skip_source=None,
+                       skip_reason=None, skip_previous_status=None)
+    return updates

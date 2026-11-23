@@ -65,6 +65,8 @@ export default function SettingsPage() {
   const [pluginError, setPluginError] = useState<string | null>(null);
   // Automation
   const [dailyApplyCap, setDailyApplyCap] = useState<number>(DEFAULT_DAILY_APPLY_CAP);
+  const [minimumMatchScore, setMinimumMatchScore] = useState(0);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [maxRunCost, setMaxRunCost] = useState<number>(DEFAULT_MAX_RUN_COST_USD);
   const [browserCdpUrl, setBrowserCdpUrl] = useState("");
   const [emailOtpViaGmail, setEmailOtpViaGmail] = useState(false);
@@ -80,6 +82,7 @@ export default function SettingsPage() {
   useEffect(() => {
     Promise.all([
       getSettings().then((data) => {
+        setSettingsLoaded(true);
         setResumePath(data.resume_path || "");
         setBlockedDomains(data.blocked_domains || []);
         setMaxFailures(data.max_failures || 8);
@@ -99,6 +102,7 @@ export default function SettingsPage() {
         setEmail(sens.email || "");
         setPassword(sens.password || "");
         setDailyApplyCap(numberOr(data.daily_apply_cap, DEFAULT_DAILY_APPLY_CAP));
+        setMinimumMatchScore(numberOr(data.minimum_match_score, 0));
         setMaxRunCost(numberOr(data.max_run_cost_usd, DEFAULT_MAX_RUN_COST_USD));
         setBrowserCdpUrl(data.browser_cdp_url || "");
         setEmailOtpViaGmail(data.email_otp_via_gmail === true);
@@ -243,7 +247,7 @@ export default function SettingsPage() {
   // silently needed "Save Settings"). The button stays as an explicit save.
   const loadedRef = useRef(false);
   useEffect(() => {
-    if (loading) return;
+    if (loading || !settingsLoaded) return;
     if (!loadedRef.current) {
       loadedRef.current = true; // the values that just loaded are not an edit
       return;
@@ -251,10 +255,11 @@ export default function SettingsPage() {
     const timer = setTimeout(() => void handleSave(), 900);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, resumePath, blockedDomains, email, password, maxFailures, dailyApplyCap, maxRunCost,
+  }, [loading, settingsLoaded, resumePath, blockedDomains, email, password, maxFailures, dailyApplyCap, minimumMatchScore, maxRunCost,
       browserCdpUrl, emailOtpViaGmail]);
 
   const handleSave = async () => {
+    if (!settingsLoaded) return;
     try {
       setSaveError(null);
       await saveSettings({
@@ -266,6 +271,7 @@ export default function SettingsPage() {
         log_retention_days: logRetentionDays,
         theme,
         daily_apply_cap: dailyApplyCap,
+        minimum_match_score: minimumMatchScore,
         max_run_cost_usd: maxRunCost,
         browser_cdp_url: browserCdpUrl.trim(),
         email_otp_via_gmail: emailOtpViaGmail,
@@ -280,6 +286,8 @@ export default function SettingsPage() {
   };
 
   if (loading) return <LoadingSpinner />;
+  if (!settingsLoaded) return <div role="alert">Settings could not be loaded. Reload before editing to protect saved settings.
+    <button className="btn-secondary ml-2" onClick={() => window.location.reload()}>Reload settings</button></div>;
 
   return (
     <div className="max-w-2xl">
@@ -405,6 +413,12 @@ export default function SettingsPage() {
 
       {/* Automation */}
       <Section title={t("automation.title")}>
+        <div className="mb-5">
+          <label htmlFor="minimum-match-score" className="block text-sm font-semibold mb-1.5">Automatically skip matches below (%)</label>
+          <input id="minimum-match-score" type="number" min={0} max={100} value={minimumMatchScore}
+            onChange={e => setMinimumMatchScore(Math.max(0, Math.min(100, Math.round(Number(e.target.value) || 0))))} className="input-base !w-32" />
+          <p className="text-[13px] text-muted-foreground mt-1.5">Scores strictly below this value are skipped. Equal scores remain eligible. Set 0 to disable. Records and application history are retained.</p>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="daily-apply-cap" className="block text-sm font-semibold text-foreground mb-1.5">

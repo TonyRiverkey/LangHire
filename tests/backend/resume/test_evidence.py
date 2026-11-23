@@ -32,6 +32,14 @@ def test_locked_dates_and_new_numbers_rejected():
         validate(a,sections,evidence,'Formal investigations',sections[0]['text'])
 
 
+def test_locked_line_accepts_bullet_and_whitespace_changes_only():
+    source='- Provided HR coverage beginning in October 2024.'
+    a=sample();a.edits[0].revised='• Provided HR coverage beginning\nin October 2024.'
+    sections=[{'text':source,'section_type':'experience'}]
+    evidence={'section-0':{'statement':source,'status':'source_resume'}}
+    assert validate(a,sections,evidence,'Formal investigations',source)
+
+
 def test_false_requirement_quote_rejected():
     with pytest.raises(ValueError,match='quote'):
         validate(sample(),[],{},'Recruitment','')

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, parse_qs
 
 from browser_use import Agent, Tools
 from browser_use.agent.views import ActionResult
@@ -16,7 +17,7 @@ from resume import job_review
 from . import events, prompts, vision
 from .browsers import close_session, make_browser_session
 from .collect_fastpath import collect_cards
-from .matching import match_score
+from .matching import score_updates
 
 
 def _browser():
@@ -40,6 +41,35 @@ async def _verified_search_page(browser, url, city, date):
     if _blocked(state.get("url", "")):
         raise ValueError("LinkedIn sign-in or CAPTCHA blocked the search.")
     controls = await page.get_elements_by_css_selector(job_capture.LOCATION_INPUT)
+    if state.get('ai_location_control') and not job_capture.search_location_evidence(state, city):
+        controls = []  # Hidden legacy inputs must not receive edits in the AI layout.
+        openers = await page.get_elements_by_css_selector('[role="button"][aria-label^="Location "]')
+        if openers:
+            await openers[0].click()
+            for _ in range(10):
+                chosen = await page.evaluate(r"""(city) => {
+                  const wanted = city.toLowerCase().split(',').map(s => s.trim());
+                  const option = Array.from(document.querySelectorAll('#semanticSearchBoxLocationList a[href]')).find(el => {
+                    const found = el.innerText.toLowerCase().split(',').map(s => s.trim());
+                    const initials = s => s.split(' ').map(w => w[0]).join('');
+                    return el.getClientRects().length && found[0] === wanted[0] &&
+                      (!wanted[1] || found[1] === wanted[1] || initials(found[1] || '') === wanted[1]);
+                  });
+                  return option ? option.href : '';
+                }""", city)
+                # Follow the visible location-history link; React may ignore synthetic clicks.
+                target = urlsplit(chosen) if isinstance(chosen, str) else urlsplit('')
+                if (target.scheme == 'https' and target.hostname == 'www.linkedin.com'
+                        and target.path.startswith('/jobs/search')
+                        and parse_qs(target.query).get('geoId', [''])[0].isdigit()):
+                    await page.goto(chosen)
+                    for _ in range(15):
+                        state = await job_capture.search_state(browser, page=page)
+                        if job_capture.verified_search(state, city, date):
+                            return page, state
+                        await asyncio.sleep(1)
+                    break
+                await asyncio.sleep(0.5)
     if controls and not job_capture.search_location_evidence(state, city):
         await controls[0].click()
         await controls[0].fill(city)
@@ -141,7 +171,7 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
             return "Skipped: closure, role or location is unsuitable or unverified."
         job.update(fit_review=review, salary=review["salary"]["evidence"], search_title=title,
                    status="pending", collected_at=datetime.now(timezone.utc).isoformat())
-        job["match_score"] = match_score(job, profile)
+        job.update(score_updates(job, profile))
         if db.add_jobs([job]) != 1:
             entry["duplicates"] += 1
             return "Already saved by another operation."
@@ -194,6 +224,10 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
                     entry["stage"] = "capture"
             if end := job_capture.END_OF_RESULTS.search(state.get("text", "")):
                 finish(end.group())
+                if not failed:
+                    return
+            if job_capture.all_displayed_results_read(state, len(cards)):
+                finish(f"Inspected all {state['result_count']} displayed results; no next page.")
                 if not failed:
                     return
     except Exception as error:
@@ -278,7 +312,10 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
                 f"Collect {title} jobs for {city} from {url}. Verify the visible LinkedIn Location control. "
                 f"If it differs, use autocomplete to select {city} and submit that search. Keep these filters: {filters}. "
                 "Open suitable job postings, expand the complete description and call capture_selected_job. "
-                "Keep the verified search results open. If a selected posting is ambiguous, open its visible job link in a new tab. Never construct links, salary or text from memory. "
+                "Call capture_selected_job immediately after expanding a related posting: the tool reads the DOM and verifies identity. "
+                "Do not repeatedly extract or search for title-link URLs, even if the browser's selected-card label looks stale. "
+                "If capture reports a duplicate, move to another card. If capture fails, wait and retry once, then move on. "
+                "Keep the verified search results open. Never construct links, salary or text from memory. "
                 f"Collect up to {quota or 'the available'} suitable new jobs, including {entry['saved']} already captured. "
                 "Call finish_search with the exact visible no-results or end-of-results message before ending below quota. "
                 "If there is a login or CAPTCHA blocker, stop and report it. Do not visit email, apply, message or upload anything. "
@@ -290,8 +327,9 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
                           enable_signal_handler=False, register_new_step_callback=on_step,
                           register_done_callback=on_done, calculate_cost=True,
                           extend_system_message=prompts.with_overrides(""))
-            async with asyncio.timeout(480):
-                history = await agent.run(max_steps=30)
+            # Bound navigation fallback; repeated link lookups previously stalled each city for eight minutes.
+            async with asyncio.timeout(240):
+                history = await agent.run(max_steps=12)
             from .apply import _usage_cost, add_run_usage, usage_tokens
             ctx.cost_usd += _usage_cost(history)
             add_run_usage(ctx, usage_tokens(history))
@@ -341,7 +379,7 @@ async def _read_open_posting(browser, url, *, page=None, city=None, search_evide
 
 async def recover_descriptions(profile):
     missing = [url for url, job in db.read_jobs().items()
-               if job.get("source") == "linkedin" and job["status"] == "pending" and not job.get("description")]
+               if job.get("source") == "linkedin" and (job["status"] == "pending" or job.get('skip_source') == 'match_threshold') and not job.get("description")]
     if not missing:
         return
     browser = _browser()
@@ -357,9 +395,9 @@ async def recover_descriptions(profile):
                     else:
                         await page.goto(canonical)
                     posting = await _read_open_posting(browser, canonical)
-                    db.update_job(url, if_unchanged={"status": "pending", "description": ""},
+                    db.update_job(url, if_unchanged={"status": job['status'], "description": ""},
                                   description=posting["description"], description_source=canonical,
-                                  source_metadata=posting["source_metadata"], match_score=match_score(posting, profile))
+                                  source_metadata=posting["source_metadata"], **score_updates({**job, **posting}, profile))
             except Exception as error:
                 events.warn(f"Could not recover a source-backed LinkedIn description: {error or type(error).__name__}")
     finally:

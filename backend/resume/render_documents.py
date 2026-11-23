@@ -2,14 +2,15 @@
 from xml.sax.saxutils import escape
 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 
 
 def styles():
     s=getSampleStyleSheet()
     s.add(ParagraphStyle(name='Body',fontName='Helvetica',fontSize=9.5,leading=12,spaceAfter=4))
     s.add(ParagraphStyle(name='ApplicationBullet',parent=s['Body'],leftIndent=9,firstLineIndent=-7))
-    s.add(ParagraphStyle(name='Role',parent=s['Body'],fontName='Helvetica-Bold',spaceBefore=5))
+    s.add(ParagraphStyle(name='Role',parent=s['Body'],fontName='Helvetica-Bold',spaceBefore=5,keepWithNext=True))
+    s.add(ParagraphStyle(name='RoleDate',parent=s['Body'],keepWithNext=True))
     s['Heading2'].fontName='Helvetica-Bold';s['Heading2'].fontSize=11;s['Heading2'].spaceBefore=7;s['Heading2'].spaceAfter=5
     s['Title'].fontSize=21;s['Title'].leading=24
     return s
@@ -32,10 +33,9 @@ def render_resume(sections,edits,name,contact,path):
         while index<len(lines):
             line=lines[index]
             if line==title:index+=1;continue
-            if '|' in line and len(line)<150 and index+1<len(lines) and any(c.isdigit() for c in lines[index+1]):
-                pair=(line,lines[index+1])
+            if section['section_type'] in ('experience','projects') and '|' in line and len(line)<150 and index+1<len(lines) and any(c.isdigit() for c in lines[index+1]):
                 # Repeated cross-role headers preserve attribution across source page breaks.
-                story.append(KeepTogether([Paragraph(escape(line),s['Role']),Paragraph(escape(lines[index+1]),s['Body'])]))
+                story.extend([Paragraph(escape(line),s['Role']),Paragraph(escape(lines[index+1]),s['RoleDate'])])
                 index+=2;continue
             bullet=line.startswith(('-', '•', '·'))
             story.append(Paragraph(escape(('- '+line.lstrip('-•· ')) if bullet else line),s['ApplicationBullet'] if bullet else s['Body']))

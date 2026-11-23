@@ -606,3 +606,23 @@ describe("SettingsPage", () => {
     });
   });
 });
+
+
+describe("match threshold and loading safety", () => {
+  it("loads and saves the automatic skip threshold", async () => {
+    mockGetSettings.mockResolvedValue({ ...baseSettings, minimum_match_score: 50 });
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+    const input = await screen.findByLabelText("Automatically skip matches below (%)");
+    expect(input).toHaveValue(50);
+    await user.clear(input); await user.type(input, "60");
+    await waitFor(() => expect(mockSaveSettings).toHaveBeenCalledWith(expect.objectContaining({ minimum_match_score: 60 })), { timeout: 2000 });
+  });
+  it("does not expose editable defaults after settings fail to load", async () => {
+    mockGetSettings.mockRejectedValue(new Error("offline"));
+    render(<SettingsPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Settings could not be loaded");
+    expect(screen.queryByLabelText("Automatically skip matches below (%)")).not.toBeInTheDocument();
+    expect(mockSaveSettings).not.toHaveBeenCalled();
+  });
+});

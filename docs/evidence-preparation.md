@@ -26,3 +26,11 @@ instead of silently replacing it with defaults. Inspect and restore an appropria
 Development imports do not publish a new connection token; duplicate direct launches refuse an
 occupied backend port. Run tests with an isolated `LANGHIRE_DATA_DIR`. Personal output, temporary
 trial data and private plans must remain outside commits.
+
+The Automation setting Minimum match score retains below-threshold queued jobs as Skipped,
+with a reason. The comparison is strict: a score equal to the minimum remains eligible.
+Zero disables the rule. Collection, manual additions, description recovery and rescoring use
+the same policy. Applied history and active attempts keep their status; manually skipped
+jobs are not automatically restored. Only skips made by this policy can be restored after
+their score improves. Document approval and new application attempts also enforce the current
+minimum, including when a stale UI or manual status change would otherwise bypass it.

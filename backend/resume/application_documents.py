@@ -106,6 +106,10 @@ def inputs_hash(job, mode, letter):
 
 
 def validated_documents(job):
+    from engine.matching import match_score, minimum_match_score
+    minimum = minimum_match_score()
+    if match_score(job, load_profile()) < minimum:
+        raise ValueError(f'This job is below the {minimum}% minimum match score. It cannot be approved or applied to.')
     record = job.get("application_documents") or {}
     if not record.get("reviewed"):
         raise ValueError("Prepare and review the application documents for this job first.")

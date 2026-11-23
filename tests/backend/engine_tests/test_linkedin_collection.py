@@ -48,3 +48,47 @@ async def test_wrong_search_location_is_corrected_before_capture(monkeypatch):
     assert selected is page
     assert state == right
     control.fill.assert_awaited_once_with("Vancouver, BC")
+
+
+async def test_ai_search_selects_visible_recent_location_before_capture(monkeypatch):
+    from core import job_capture
+    monkeypatch.setattr(linkedin.asyncio,'sleep',AsyncMock())
+    opener=SimpleNamespace(click=AsyncMock())
+    hidden_legacy=SimpleNamespace(click=AsyncMock(),fill=AsyncMock())
+    async def elements(selector):
+        return [hidden_legacy] if selector==job_capture.LOCATION_INPUT else [opener]
+    page=SimpleNamespace(goto=AsyncMock(),evaluate=AsyncMock(return_value='https://www.linkedin.com/jobs/search-results/?geoId=12345'),get_elements_by_css_selector=elements)
+    browser=SimpleNamespace(start=AsyncMock(),get_current_page=AsyncMock(return_value=page))
+    wrong={'location':'Victoria, BC (40 km)','dates':['Past week'],'ai_location_control':True}
+    right={'location':'Vancouver, BC (40 km)','dates':['Past week']}
+    monkeypatch.setattr(job_capture,'search_state',AsyncMock(side_effect=[wrong]*4+[right]))
+    _,state=await linkedin._verified_search_page(browser,'search-url','Vancouver, BC','r604800')
+    assert state==right
+    opener.click.assert_awaited_once()
+    hidden_legacy.fill.assert_not_awaited()
+    assert page.goto.await_args_list[-1].args[0]=='https://www.linkedin.com/jobs/search-results/?geoId=12345'
+
+
+def test_only_exact_fully_read_result_counts_verify_completion():
+    from core.job_capture import all_displayed_results_read
+    state={'result_count':3,'rendered_count':3,'has_next_page':False}
+    assert all_displayed_results_read(state,3)
+    assert not all_displayed_results_read(state,2)
+    assert not all_displayed_results_read({**state,'has_next_page':True},3)
+    assert not all_displayed_results_read({**state,'result_count':None},3)
+
+
+async def test_location_history_does_not_follow_external_or_non_search_link(monkeypatch):
+    import pytest
+    from core import job_capture
+    monkeypatch.setattr(linkedin.asyncio,'sleep',AsyncMock())
+    legacy=SimpleNamespace(click=AsyncMock(),fill=AsyncMock())
+    opener=SimpleNamespace(click=AsyncMock())
+    async def elements(selector):return [legacy] if selector==job_capture.LOCATION_INPUT else [opener]
+    page=SimpleNamespace(goto=AsyncMock(),evaluate=AsyncMock(return_value='https://example.test/jobs/search?geoId=123'),get_elements_by_css_selector=elements)
+    browser=SimpleNamespace(start=AsyncMock(),get_current_page=AsyncMock(return_value=page))
+    monkeypatch.setattr(job_capture,'search_state',AsyncMock(return_value={'location':'Victoria, BC','dates':['Past week'],'ai_location_control':True}))
+    with pytest.raises(ValueError,match='Could not verify'):
+        await linkedin._verified_search_page(browser,'search-url','Vancouver, BC','r604800')
+    assert page.goto.await_count==1
+    legacy.fill.assert_not_awaited()

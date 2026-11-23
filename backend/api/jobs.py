@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from core import db
 from core.config import load_profile
 from core.shared_config import validate_job_url
-from engine.matching import match_score
+from engine.matching import match_score, score_updates, minimum_match_score
 from models import JobAddRequest, JobsDeleteRequest, JobStatusUpdate
 
 from .common import api_error
@@ -73,9 +73,14 @@ async def export_jobs_csv():
 @router.put("/jobs/status")
 async def update_job_status(body: JobStatusUpdate):
     url = body.url.strip()
-    if db.get_job(url) is None:
+    job = db.get_job(url)
+    if job is None:
         return api_error("not_found", "Job not found", 404)
-    db.update_job(url, status=body.status, error=None)
+    score = match_score(job, load_profile())
+    if body.status == 'pending' and score < minimum_match_score():
+        return api_error('match_below_minimum', 'This job is below the minimum match score in Settings.', 409)
+    db.update_job(url, status=body.status, error=None, skip_source='manual' if body.status == 'skipped' else None,
+                  skip_reason=None, skip_previous_status=None, **({'match_score':score} if body.status=='pending' else {}))
     return {"success": True, "url": url, "status": body.status}
 
 
@@ -103,7 +108,7 @@ async def add_job_manually(body: JobAddRequest):
         "applied_at": None,
         "error": None,
     }
-    job["match_score"] = match_score(job, load_profile())
+    job.update(score_updates(job, load_profile()))
     db.add_jobs([job])
     return {"success": True, "url": url, "fetched": sorted(fetched)}
 
@@ -119,10 +124,12 @@ async def delete_jobs(body: JobsDeleteRequest):
 async def rescore_jobs():
     """Recompute match scores (after the profile changes)."""
     profile = load_profile()
+    minimum = minimum_match_score()
     n = 0
     for url, job in db.read_jobs().items():
-        db.update_job(url, match_score=match_score(job, profile))
-        n += 1
+        if db.update_job(url, if_unchanged={'status':job.get('status'), 'description':job.get('description'),
+                                          'skip_source':job.get('skip_source')}, **score_updates(job, profile, minimum)):
+            n += 1
     return {"success": True, "rescored": n}
 
 

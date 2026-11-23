@@ -100,7 +100,8 @@ def validate(analysis, sections, evidence, description, original):
         # Dated entries and role headers are locked even inside an editable section.
         for line in source['text'].splitlines():
             if re.search(r'\b(?:19|20)\d{2}\b', line) or ('|' in line and len(line) < 150):
-                if line.strip() and line.strip() not in edit.revised:
+                locked = ' '.join(line.lstrip('•- ').split())
+                if locked and locked not in ' '.join(edit.revised.split()):
                     raise ValueError('Draft changed a locked line; retain this exact text in section '+str(edit.section)+': '+line.strip())
     total = sum(len(next((e.revised for e in analysis.edits if e.section == i),s['text']).split()) for i,s in enumerate(sections))
     if total > 1100:
@@ -144,7 +145,7 @@ async def analyze(body: AnalyzeRequest):
             'New responsibilities are ongoing scope, not completed results. Main resume is never changed.\n'
             f'USER DRAFT DIRECTION: {body.instruction}\nJOB: {job["title"]} at {job["company"]}\nFULL POSTING:\n{job["description"]}\n'
             f'EVIDENCE:\n{json.dumps(evidence,ensure_ascii=False)}\n'
-            f'SECTIONS:\n{json.dumps([{ "index":i,"type":s["section_type"],"text":s["text"]} for i,s in enumerate(sections)],ensure_ascii=False)}'
+            f'SECTIONS:\n{json.dumps([{ "index":i,"type":s["section_type"],"text":s["text"],"locked_lines":[line for line in s["text"].splitlines() if re.search(r"\b(?:19|20)\d{2}\b",line) or ("|" in line and len(line)<150)]} for i,s in enumerate(sections)],ensure_ascii=False)}'
         )
         llm = create_llm(load_llm_settings())
         for attempt in range(2):

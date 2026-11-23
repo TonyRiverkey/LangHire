@@ -659,6 +659,7 @@ export default function PendingTab({ onJobsChanged, stats }: PendingTabProps) {
                         )}
                         <MainResumeImprover jobUrl={job.url} skills={job.skills_to_consider || []} />
                         <ApplicationDocuments jobUrl={job.url} onDirtyChange={dirty => setDirtyDocuments(previous => previous[job.url] === dirty ? previous : { ...previous, [job.url]: dirty })} />
+                        {job.skip_reason && <p className="text-[13px] text-muted-foreground mt-1">{job.skip_reason}</p>}
                         {job.error && (
                           <p
                             className="text-[13px] text-destructive mt-1 truncate"

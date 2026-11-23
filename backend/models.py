@@ -113,6 +113,7 @@ class SettingsBody(_Open):
     browser_cdp_url: str = ""
     email_otp_via_gmail: bool = False
     test_mode: bool = False
+    minimum_match_score: int = Field(default=0, ge=0, le=100)
 
 
 class LLMSettingsBody(_Open):

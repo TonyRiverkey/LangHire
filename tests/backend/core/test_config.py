@@ -234,10 +234,11 @@ def test_site_password_kept_out_of_settings_file(data_dir):
     assert config.load_settings()["sensitive_data"]["password"] == "hunter2"
 
 
-def test_corrupt_settings_file_falls_back_to_defaults(data_dir):
+def test_corrupt_settings_file_is_preserved_instead_of_reset(data_dir):
     (data_dir / "settings.json").write_text("{not json", encoding="utf-8")
-    assert config.load_settings()["max_failures"] == 8
-    assert (data_dir / "settings.json.corrupt").exists()
+    with pytest.raises(ValueError, match='unreadable'):
+        config.load_settings()
+    assert (data_dir / 'settings.json').read_text(encoding='utf-8') == '{not json'
 
 
 def test_replace_file_retries_brief_windows_locks(tmp_path, monkeypatch):

@@ -22,7 +22,7 @@ from core.agent_logger import on_step as _log_step, on_done as _log_done, log_ru
 from . import events, prompts
 from .browsers import close_session, make_browser_session
 from .events import RunContext, emit
-from .matching import match_score
+from .matching import score_updates
 from .tools import AgentReport, build_collect_tools
 from . import vision
 
@@ -83,7 +83,7 @@ async def collect_for_title(plugin, title: str, profile: dict, *, max_jobs: int,
                 "source": plugin.name, "search_title": title, "status": "pending",
                 "collected_at": now, "applied_at": None, "error": None,
             }
-            job["match_score"] = match_score(job, profile)
+            job.update(score_updates(job, profile))
             new.append(job)
         added = db.add_jobs(new)
         found += added
@@ -245,7 +245,7 @@ async def run_collect(ctx: RunContext, *, title: str | None, source: str, max_jo
             events.error(f"  Error collecting '{t}': {e}")
 
     needs = [(u, j) for u, j in db.read_jobs().items()
-             if j.get("status") == "pending" and not j.get("description") and j.get("source") == plugin.name]
+             if (j.get("status") == "pending" or j.get('skip_source') == 'match_threshold') and not j.get("description") and j.get("source") == plugin.name]
     if needs:
         events.info(f"📋 Fetching descriptions for {len(needs)} job(s)...")
     shared = make_browser_session() if needs else None
@@ -296,7 +296,7 @@ async def _fetch_all(needs: list[tuple[str, dict]], browser, profile: dict) -> N
             desc = await fetch_description(url, job, browser=browser)
             if desc:
                 job["description"] = desc
-                db.update_job(url, description=desc, match_score=match_score(job, profile))
+                db.update_job(url, description=desc, **score_updates(job, profile))
                 emit("description_fetched", f"  [{i}/{len(needs)}] ✅ {job.get('title', '')} ({len(desc)} chars)",
                      job_url=url)
             else:

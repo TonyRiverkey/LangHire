@@ -118,6 +118,7 @@ export interface AppSettings {
   log_retention_days?: number;
   /** Max applications per job site per day; 0 = no cap. Default 25. */
   daily_apply_cap?: number;
+  minimum_match_score?: number;
   /** Stop a run after this much LLM spend (USD). Default 5. */
   max_run_cost_usd?: number;
   /** Chrome DevTools address of the user's own browser; empty = LangHire's browser. */
@@ -163,6 +164,7 @@ export interface Job {
   tailored_resume_path?: string;
   /** How well the job fits the profile, 0-100 (null when not scored yet). */
   match_score?: number | null;
+  skip_reason?: string | null;
 }
 
 // ── Application records ──────────────────────────────────────────────────

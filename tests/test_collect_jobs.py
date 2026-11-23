@@ -23,9 +23,10 @@ def environment(data_dir, monkeypatch):
 
     monkeypatch.setattr(collector, "collect_cards", no_cards)
     review = {"role_fit": "relevant", "location_fit": "within_target", "closed": False,
+              "role_reason": "Relevant advisory scope.", "location_evidence": "Verified city",
               "salary": {"evidence": "CAD 90,000 per year"}, "profile_questions": []}
     monkeypatch.setattr(job_review, "review_job", AsyncMock(return_value=review))
-    state = SimpleNamespace(actions=["capture"], agents=[], review=review, existing=existing)
+    state = SimpleNamespace(actions=["capture"], agents=[], review=review, existing=existing, native=False)
     state.final_message = "Claimed success"
 
     class Page:
@@ -34,11 +35,14 @@ def environment(data_dir, monkeypatch):
 
         async def goto(self, url):
             self.browser.posting_url = url
+            city = parse_qs(urlsplit(url).query).get('location')
+            if city:
+                self.browser.location = city[0]
 
-        async def evaluate(self, script):
+        async def evaluate(self, script, *args):
             location = self.browser.location
             if script == job_capture.SEARCH_STATE_SCRIPT:
-                return {"location": location, "text": "No more results"}
+                return {"location": location, "dates": ["Past week"], "text": "No more results"}
             job_id = "1111111111" if "Vancouver" in location else "2222222222"
             return {"page_url": self.browser.posting_url or f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}",
                     "source_job_url": f"https://www.linkedin.com/jobs/view/{job_id}/",
@@ -55,6 +59,19 @@ def environment(data_dir, monkeypatch):
 
         async def get_current_page(self):
             return Page(self)
+
+        async def start(self):
+            if not state.native:
+                raise RuntimeError('Fixture forces navigation fallback')
+
+        async def get_pages(self):
+            return [Page(self)]
+
+        async def new_page(self, url=None):
+            page = Page(self)
+            if url:
+                await page.goto(url)
+            return page
 
     class Agent:
         def __init__(self, **kwargs):
@@ -110,8 +127,8 @@ async def test_model_success_without_capture_or_exhaustion_is_failure(environmen
     environment.actions = []
     report = {"locations": []}
     assert await collect("HR", 2, report=report) == 0
-    assert all(item["status"] == "failed" and item["attempts"] == 2 for item in report["locations"])
-    assert len(environment.agents) == 4
+    assert all(item["status"] == "failed" and item["attempts"] == 1 for item in report["locations"])
+    assert len(environment.agents) == 2  # one bounded fallback per city
 
 
 async def test_explicit_exhausted_search_can_complete_with_no_new_jobs(environment):
@@ -168,7 +185,8 @@ async def test_finished_capture_callbacks_cannot_write_late_or_use_next_city(env
 
 
 async def test_fast_capture_checks_city_and_reads_the_actual_posting(environment, monkeypatch):
-    async def cards(browser, url, want):
+    environment.native = True
+    async def cards(browser, url, want, *, page=None):
         browser.location = parse_qs(urlsplit(url).query)["location"][0]
         job_id = "1111111111" if browser.location.startswith("Vancouver") else "2222222222"
         return [{"url": f"https://www.linkedin.com/jobs/view/{job_id}/", "title": "Untrusted card title"}]

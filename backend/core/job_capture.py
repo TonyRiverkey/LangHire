@@ -73,10 +73,23 @@ SEARCH_STATE_SCRIPT = r"""(locationSelector) => {
   }
   const guestLocations = Array.from(document.querySelectorAll('.job-search-card__location'))
     .filter(visible).map(el => el.innerText.trim());
+  const mainText = (document.querySelector('main') || document.body)?.innerText || '';
+  const resultCount = mainText.match(/^\s*(\d+) results?\s*$/m);
+  const rendered = new Set(Array.from(document.querySelectorAll('[role="button"][componentkey^="job-card-component-ref-"]'))
+    .map(el => el.getAttribute('componentkey'))).size;
+  const next = document.querySelector('[data-testid="pagination-controls-next-button-visible"]');
   return {location: input?.value || locationButton?.getAttribute('aria-label').replace(/^Location /, '') || '', dates: controls, url: location.href, guest_locations: guestLocations,
     geo_id: input?.closest('form')?.querySelector('input[name="geoId"]')?.value || '',
-    text: (document.querySelector('main') || document.body)?.innerText || ''};
+    ai_location_control: Boolean(locationButton),
+    result_count: resultCount ? Number(resultCount[1]) : null, rendered_count: rendered,
+    has_next_page: Boolean(next && visible(next) && !next.disabled), text: mainText};
 }"""
+
+
+def all_displayed_results_read(state, captured_cards):
+    count = state.get('result_count')
+    return (type(count) is int and count >= 0 and state.get('rendered_count') == count
+            and captured_cards == count and state.get('has_next_page') is False)
 
 
 async def search_state(browser_session, *, page=None):

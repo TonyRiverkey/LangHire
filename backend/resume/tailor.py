@@ -34,7 +34,7 @@ _HEADING_RULES = [  # first match wins; order matters ("Academic Projects" is pr
     ("experience", r"experience|internship|employment|work history|career history|professional background"),
     ("education", r"^education and certifications$"),
     ("certifications", r"certif|award|achievement|honou?rs?|courses?|training|licen[cs]e"),
-    ("skills", r"skill|technolog|tech stack|tools|competenc|expertise"),
+    ("skills", r"skill|technolog|tech stack|tools|competenc|expertise|capabilit"),
     ("overview", r"summary|objective|overview|about me|^profile$|professional profile"),
     ("education", r"education|academic|qualification"),
     ("contact", r"^contact"),
@@ -150,7 +150,8 @@ def _extract_sections(doc: fitz.Document) -> list[dict]:
                 if not text:
                     continue
                 if (line["bbox"][1] > doc[page_num].rect.height * .9
-                        and text.endswith(f" | {page_num + 1}")):
+                        and (text.endswith(f" | {page_num + 1}") or _PAGE_NUMBER.match(text)
+                             or re.search(r"\|\s*(?:master\s+)?resum[eé]\b", text, re.I))):
                     continue
                 size = max((sp.get("size", 0) for sp in spans), default=0)
                 bold = any("bold" in (sp.get("font", "") or "").lower() or (sp.get("flags", 0) & 16) for sp in spans)

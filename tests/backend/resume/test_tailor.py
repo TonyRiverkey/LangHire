@@ -736,4 +736,19 @@ def test_dated_role_subheadings_remain_experience_across_pages():
     assert len(experience) == 2
     assert "Employer | Human Resources Generalist" in experience[0]["text"]
     assert "October 2023 - August 2026" in experience[1]["text"]
-    assert sections[-1]["section_type"] == "other"
+    assert sections[-1]["section_type"] == "skills"
+
+
+def test_master_footer_is_excluded_and_capabilities_are_editable():
+    import pymupdf
+    from resume.tailor import _extract_sections, classify_heading
+    assert classify_heading('ADDITIONAL CAPABILITIES') == 'skills'
+    with pymupdf.open() as pdf:
+        page=pdf.new_page(width=612,height=792)
+        page.insert_text((45,60),'PROFESSIONAL SUMMARY',fontsize=14)
+        page.insert_text((45,90),'Operational HR experience.',fontsize=10)
+        page.insert_text((45,768),'Candidate | Master resume',fontsize=8)
+        page.insert_text((560,768),'1',fontsize=8)
+        text='\n'.join(s['text'] for s in _extract_sections(pdf))
+        assert 'Operational HR experience.' in text
+        assert 'Master resume' not in text
