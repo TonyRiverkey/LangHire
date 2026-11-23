@@ -40,6 +40,8 @@ def _load_json(path: Path, default=None):
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except ValueError:
+            if path.name in ('candidate_profile.json', 'settings.json'):
+                raise ValueError(f'{path.name} is unreadable. Existing data was preserved; recover a config-backups copy before saving.')
             # A corrupt file must not brick the app: keep a copy, use defaults.
             path.replace(path.with_suffix(path.suffix + ".corrupt"))
     return default if default is not None else {}
@@ -47,7 +49,13 @@ def _load_json(path: Path, default=None):
 
 def _save_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    import uuid
+    import shutil
+    if path.name in ('candidate_profile.json', 'settings.json') and path.is_file():
+        backups = path.parent / 'config-backups'
+        backups.mkdir(exist_ok=True)
+        shutil.copy2(path, backups / f'{path.stem}-{uuid.uuid4().hex}.json')
+    tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     replace_file(tmp, path)
     if any(s in path.name for s in ("llm_settings", "settings")):

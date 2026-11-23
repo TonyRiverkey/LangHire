@@ -82,3 +82,13 @@ node_modules/.tmp/
 *.rpm
 .claude/worktrees/
 !src/locales/*/jobs.json
+
+# Local candidate documents, trials and private planning notes
+/output/
+/tmp/
+/docs/plans/
+langhire.db*
+config-backups/
+recovery-backups/
+application_documents/
+tailored_resumes/

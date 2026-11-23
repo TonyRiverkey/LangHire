@@ -400,7 +400,11 @@ export default function CollectTab({ onJobsChanged }: CollectTabProps) {
                 <li key={`${item.title}-${item.location}-${index}`}>
                   <strong>{item.title} · {item.location}</strong>
                   <p>{item.saved} saved · {item.skipped} skipped · {item.status}</p>
+                  {item.duplicates !== undefined && (
+                    <p>{item.duplicates} duplicates · {item.rejected} rejected · {item.capture_failures} capture failures</p>
+                  )}
                   {item.reason && <p className="text-muted-foreground">{item.reason}</p>}
+                  {item.capture_failures ? <p className="text-muted-foreground">{item.last_capture_error}</p> : null}
                 </li>
               ))}
             </ul>

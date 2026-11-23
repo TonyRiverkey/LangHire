@@ -1,0 +1,46 @@
+{
+  "upstream": "https://github.com/reactive-resume/reactive-resume",
+  "policy": "evidence-v1",
+  "adapted_from": {
+    "resume-content-guide": {
+      "files": 8,
+      "missing_relative_links": [],
+      "sha256": {
+        "SKILL.md": "cee97a886f0901524d1056fc0bcc06859abb70cb5d92fd9e65769919fb97b211",
+        "references\\countries.md": "c6cf7eb0e23efb8afc10b80811b218ebefdaabf7d44e41d07a3c59665ef02872",
+        "references\\evidence.md": "001412fcb2637f68eee281f798cb565cdec6b8e47b410f6b4efd4f7f36d7d3fd",
+        "references\\industries.md": "ab113a12df48e71fb18c069f61b8a01154d58f7a55d381f3698f9b807ff1bdfd",
+        "references\\patches.md": "0f9cafc352fbf668c29e22b86e72ee0c13490a00648d8dcc726b07a67ddcc326",
+        "references\\sections.md": "5b4e20ce99990be9a6c6190f953ab0b30aaa1b4e8ce7325823222c26756b3482",
+        "references\\situations.md": "ceeff8ed7c76abda7633fe77ea81e3355081f9bb7023286a8ed5d75e443c0dc3"
+      }
+    },
+    "resume-bullet-writer": {
+      "files": 8,
+      "missing_relative_links": [],
+      "sha256": {
+        "SKILL.md": "1b73a0849277f62db8d03824342b86db901f1b49dfa3bb9f7593381bec3342e9",
+        "references\\evidence.md": "49e2ea876ac5bb6f72369c65ccf213db80be3948f0eb4203e619ce6f1022513d",
+        "references\\examples.md": "30e0737f9563a8c15cdc0c8bfcd13b4926560799ccf921ca021d1f1496b2c4ba",
+        "references\\metric-library.md": "4495b36b1a7fd7e3b660786e8b3b937aada8a76ee38b3810c9ad820f6106c293",
+        "references\\question-bank.md": "0fd0fc96a7732481862630efe95d6b9e845d2aa6149298e06894440269a41974",
+        "references\\situations.md": "34b0c268313ef9ef20b732c5b048f77a50e786868c95f825f593a3186d448864",
+        "references\\verb-bank.md": "2c301d68fecaf44f00933c46af62dfb1fe917aeae506b00647b1104ef8fc0092"
+      }
+    },
+    "resume-tailor": {
+      "files": 8,
+      "missing_relative_links": [],
+      "sha256": {
+        "SKILL.md": "2dc5ffee50207375a5c9b12069b65dea94eb66a867b524c30ae60c05ca1411ea",
+        "references\\ats-reality.md": "14dd617d5dba961786ed509baf2196c30cfedb33b99e5fc0931deef0e2df4e68",
+        "references\\cover-letter.md": "7a4d9300a28aa2e90bed96476a0fce0e92ee383d1ce3ce9f9c556e9e263c4d0f",
+        "references\\evidence-and-gaps.md": "353b74b042ed3954a4d00e625f1de5e1c2bd545d282ef9989e5894db005254bc",
+        "references\\jd-analysis.md": "431820d95300528bab97ef25c3174f0c963b4ecdb32fada3bc86e29b3a4c623f",
+        "references\\mcp-recipes.md": "403518255c5b4165f94d8ab33c1fd9c87a1aaadd950a573f3adb53504e6d5bb8",
+        "references\\rewrite-playbook.md": "8a5e0fade7ab5e42579452e3b6ec6490d97e7fdfb67aa23353e34099becb4d47"
+      }
+    }
+  },
+  "note": "Runtime rules adapted into evidence.py; installed source content pinned by SHA-256, no runtime GitHub fetch."
+}

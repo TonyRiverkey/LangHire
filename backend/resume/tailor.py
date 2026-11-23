@@ -149,6 +149,9 @@ def _extract_sections(doc: fitz.Document) -> list[dict]:
                 text = "".join(sp.get("text", "") for sp in spans).replace("​", "").strip()
                 if not text:
                     continue
+                if (line["bbox"][1] > doc[page_num].rect.height * .9
+                        and text.endswith(f" | {page_num + 1}")):
+                    continue
                 size = max((sp.get("size", 0) for sp in spans), default=0)
                 bold = any("bold" in (sp.get("font", "") or "").lower() or (sp.get("flags", 0) & 16) for sp in spans)
                 sizes.append((size, len(text)))
@@ -173,9 +176,17 @@ def _extract_sections(doc: fitz.Document) -> list[dict]:
 
     sections: list[dict] = []
     current: dict | None = None
-    for ln in lines:
+    for index, ln in enumerate(lines):
         stype = classify_heading(ln["text"])
         emphasised = ln["size"] >= body + 2.5
+        if current and current["section_type"] == "experience" and stype in (None, "other"):
+            # Dated employer/role lines belong to work history, even when styled as headings.
+            following = lines[index + 1]["text"] if index + 1 < len(lines) else ""
+            if re.search(r"\b\d{4}\s*[-–—]\s*(?:[A-Za-z]+\s+)?(?:\d{4}|Present|Current)\b", following, re.I):
+                current["lines"].append(ln["text"])
+                current["lines"].append("")
+                current["bboxes"].append(ln["bbox"])
+                continue
         if sized_headings and not emphasised:
             stype = None
         if stype is None and emphasised and len(ln["text"]) <= 45 and current is not None and                 not any(ch.isdigit() for ch in ln["text"]) and ln["text"][-1:] not in ".,;":
@@ -816,6 +827,14 @@ async def refine_resume(job_url: str, job_description: str, instruction: str, op
 
 def get_tailored_content(job_url: str) -> Optional[dict]:
     """Get the tailored resume content for a job (if it exists)."""
+    from core import db
+    job = db.get_job(job_url)
+    if job and job.get('evidence_draft'):
+        path = verified_tailored_path(job)
+        if not path:
+            return None
+        with fitz.open(path) as pdf:
+            return {'content': '\n'.join(page.get_text() for page in pdf), 'path': path}
     url_hash = _url_hash(job_url)
     md_path = _get_tailored_dir() / f"{url_hash}.md"
     pdf_path = _get_tailored_dir() / f"{url_hash}.pdf"
@@ -865,6 +884,10 @@ def tailoring_fingerprint(description: str, pdf_path: str) -> str:
 def verified_tailored_path(job: dict) -> str | None:
     description = job.get("description") or ""
     path = get_tailored_resume_path(job["url"]) if job.get("url") and description.strip() else None
+    saved = Path(job.get("tailored_resume_path") or "")
+    if (description.strip() and re.fullmatch(r"[a-f0-9]{32}\.pdf", saved.name)
+            and saved.resolve().parent == _get_tailored_dir().resolve() and saved.is_file()):
+        path = str(saved)
     if path and path == job.get("tailored_resume_path") and job.get("tailoring_fingerprint"):
         try:
             if tailoring_fingerprint(description, path) == job["tailoring_fingerprint"]:

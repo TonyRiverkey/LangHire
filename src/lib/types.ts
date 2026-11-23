@@ -379,7 +379,10 @@ export interface CollectionStatus {
 
 export interface CollectionReport {
   status: "running" | "complete" | "partial" | "failed" | "cancelled";
-  locations: { title: string; location: string; saved: number; skipped: number; status: string; reason: string }[];
+  locations: {
+    title: string; location: string; saved: number; skipped: number; status: string; reason: string;
+    stage?: string; duplicates?: number; rejected?: number; capture_failures?: number; last_capture_error?: string;
+  }[];
   error?: string | null;
 }
 

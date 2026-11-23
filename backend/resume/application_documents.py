@@ -92,6 +92,12 @@ def inputs_hash(job, mode, letter):
     digest = hashlib.sha256(json.dumps({"job": [job.get("url"), job.get("title"), job.get("company")],
                                       "description": job.get("description"), "profile": load_profile(),
                                       "mode": mode, "letter": letter}, sort_keys=True).encode())
+    if job.get('evidence_draft'):
+        from resume.evidence import inputs
+        draft = job['evidence_draft']
+        if draft.get('revision') != inputs(job)[3]:
+            raise ValueError('Evidence or generation settings changed. Analyze and prepare again.')
+        digest.update(json.dumps(draft, sort_keys=True).encode())
     digest.update(Path(resume).read_bytes())
     source = Path(load_settings().get("resume_path", ""))
     if source.is_file():
@@ -163,7 +169,8 @@ def documents(job_url: str):
     except ValueError as error:
         reason = str(error)
     return {"required_mode": required_mode(job.get("description") or ""), "current": record,
-            "ready": ready, "message": reason, "attempts": job.get("application_attempts", [])}
+            "ready": ready, "message": reason, "attempts": job.get("application_attempts", []),
+            "evidence_draft": job.get('evidence_draft')}
 
 
 @router.post("/prepare")
@@ -192,7 +199,11 @@ async def prepare(body: PrepareRequest):
         shutil.copyfile(verified_tailored_path(job), directory / "resume.pdf")
         files = [{"kind": "resume", "name": "Tailored resume", "asset": f"{version}/resume.pdf"}]
         if mode != "none":
-            text_pdf(letter, directory / "cover-letter.pdf")
+            if job.get('evidence_draft'):
+                from resume.render_documents import render_letter
+                render_letter(letter, load_profile(), job, directory / 'cover-letter.pdf')
+            else:
+                text_pdf(letter, directory / "cover-letter.pdf")
             files.append({"kind": "cover_letter", "name": "Cover letter", "asset": f"{version}/cover-letter.pdf"})
         if mode == "combined":
             with pymupdf.open() as combined:

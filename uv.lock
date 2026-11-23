@@ -1447,6 +1447,7 @@ dependencies = [
     { name = "pymupdf" },
     { name = "python-docx" },
     { name = "pyyaml" },
+    { name = "reportlab" },
     { name = "uvicorn" },
 ]
 
@@ -1479,6 +1480,7 @@ requires-dist = [
     { name = "pymupdf", specifier = ">=1.27.2.2" },
     { name = "python-docx", specifier = ">=1.1.2" },
     { name = "pyyaml", specifier = ">=6.0.1" },
+    { name = "reportlab", specifier = ">=4.4" },
     { name = "uvicorn", specifier = ">=0.44.0" },
 ]
 

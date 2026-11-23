@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getApplicationPdf } from "../lib/api";
-import { getDocuments, prepareDocuments, reviewDocuments, type DocumentFile, type DocumentState } from "../lib/applicationDocuments";
+import { analyzeDocuments, generateDocuments, confirmEvidence, getDocuments, prepareDocuments, reviewDocuments, type DocumentFile, type DocumentState } from "../lib/applicationDocuments";
 
 export function PdfFiles({ files }: { files: DocumentFile[] }) {
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
@@ -36,6 +36,8 @@ export default function ApplicationDocuments({ jobUrl, historyOnly = false, onDi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [evidence, setEvidence] = useState("");
+  const [direction, setDirection] = useState("");
   const accept = (next: DocumentState) => { setData(next); setLetter(next.current?.letter || ""); setConfirmed(false); onDirtyChange?.(false); };
   const run = async (action: () => Promise<DocumentState>, changesDocuments = false) => {
     setBusy(true); setError("");
@@ -52,6 +54,21 @@ export default function ApplicationDocuments({ jobUrl, historyOnly = false, onDi
       {!historyOnly && <>
         <p>Prepare the PDFs, inspect them, then approve the exact documents before applying.</p>
         <p>Check the employer’s attachment instructions when choosing the document format.</p>
+        <label className="block">Draft direction (optional)<textarea className="input-base" value={direction} onChange={e => setDirection(e.target.value)} placeholder="For example: emphasize manager coaching and shorten older roles" /></label>
+        <button className="btn-secondary" disabled={busy} onClick={() => run(() => analyzeDocuments(jobUrl,direction), true)}>Review evidence and draft changes</button>
+        {data?.evidence_draft && <section aria-label="Evidence review" className="space-y-3">
+          <p>{data.evidence_draft.positioning}</p>
+          <div className="overflow-x-auto"><table><thead><tr><th>Requirement</th><th>Evidence</th><th>Gap</th></tr></thead>
+            <tbody>{data.evidence_draft.requirements.map((r,i) => <tr key={i}><td>{r.quote} ({r.kind})</td><td>{r.strength}{r.evidence_ids.map(id => <details key={id}><summary>{id}</summary><p>{data.evidence_draft?.evidence[id]?.statement}</p><p>{data.evidence_draft?.evidence[id]?.status}</p></details>)}</td><td>{r.gap}</td></tr>)}</tbody></table></div>
+          {data.evidence_draft.questions.map((q,i) => <p key={i}>{i+1}. {q}</p>)}
+          <label className="block">Confirm additional experience (include employer, dates and your role)
+            <textarea className="input-base" value={evidence} onChange={e => setEvidence(e.target.value)} /></label>
+          <button className="btn-secondary" disabled={busy || evidence.trim().length < 10} onClick={() => run(() => confirmEvidence(jobUrl,evidence), true)}>Save confirmed evidence</button>
+          <p>You can leave gaps unanswered. They stay out of the documents. After saving evidence, analyze again.</p>
+          {data.evidence_draft.edits.map(e => <details key={e.section}><summary>{e.reason}</summary><p>Evidence: {e.evidence_ids.join(", ")}</p><h4>Before</h4><pre className="whitespace-pre-wrap">{data.evidence_draft?.before[String(e.section)]}</pre><h4>After</h4><pre className="whitespace-pre-wrap">{e.revised}</pre></details>)}
+          <details><summary>Proposed cover letter</summary><pre className="whitespace-pre-wrap">{data.evidence_draft.letter}</pre></details>
+          <button className="btn-primary" disabled={busy} onClick={() => run(() => generateDocuments(jobUrl,data.evidence_draft!.id,mode),true)}>Create PDFs from this draft</button>
+        </section>}
         <label className="block">Document format
           <select aria-label="Document format" value={mode} onChange={e => { setMode(e.target.value); setConfirmed(false); onDirtyChange?.(true); }} className="input-base mt-1">
             <option value="auto">From job description{data ? ` (${data.required_mode})` : ""}</option>

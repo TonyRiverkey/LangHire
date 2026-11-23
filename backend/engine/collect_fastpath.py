@@ -50,37 +50,34 @@ LINKEDIN_MORE_JS = r"""() => {
 SUPPORTED = {"linkedin"}
 
 
-async def collect_cards(browser_session, search_url: str, want: int, max_rounds: int = 12) -> list[dict]:
+async def collect_cards(browser_session, search_url: str, want: int, max_rounds: int = 12,
+                        *, page=None) -> list[dict]:
     """Open the search URL and read job cards until `want` are found (0 = one page)."""
-    await browser_session.start()
-    page = await browser_session.get_current_page()
     if page is None:
-        page = await browser_session.new_page(search_url)
-    else:
-        await page.goto(search_url)
-    await asyncio.sleep(4)
+        await browser_session.start()
+        page = await browser_session.get_current_page()
+        if page is None:
+            page = await browser_session.new_page(search_url)
+        else:
+            await page.goto(search_url)
+        await asyncio.sleep(4)
     jobs: dict[str, dict] = {}
     stale = 0
-    for _ in range(max_rounds):
+    for round_index in range(max_rounds):
+        before = len(jobs)
         try:
             raw = await page.evaluate(LINKEDIN_CARDS_JS)
             for j in json.loads(raw or "[]"):
                 jobs.setdefault(j["url"], j)
         except Exception as e:
             _log.info(f"fast collect: card read failed: {e}")
-        if want and len(jobs) >= want:
+        if round_index:
+            stale = stale + 1 if len(jobs) == before else 0
+        if (want and len(jobs) >= want) or (not want and round_index == 1) or stale >= 3 or round_index == max_rounds - 1:
             break
-        before = len(jobs)
         try:
             await page.evaluate(LINKEDIN_MORE_JS)
         except Exception:
             pass
         await asyncio.sleep(3)
-        stale = stale + 1 if len(jobs) == before else 0
-        if not want or stale >= 3:
-            if not want:
-                raw = await page.evaluate(LINKEDIN_CARDS_JS)
-                for j in json.loads(raw or "[]"):
-                    jobs.setdefault(j["url"], j)
-            break
     return list(jobs.values())

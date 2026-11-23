@@ -58,20 +58,21 @@ _log = logging.getLogger("backend")
 _ENV_TOKEN = os.environ.get("LANGHIRE_API_TOKEN") or os.environ.get("JOB_APPLICANT_TOKEN")
 _API_TOKEN = _ENV_TOKEN or _secrets.token_hex(32)
 _token_path = get_data_dir() / ".api_token"
-if _ENV_TOKEN and os.environ.get("LANGHIRE_API_TOKEN"):
-    # The host handed us the token: no file needed. Remove a stale one.
-    try:
-        _token_path.unlink(missing_ok=True)
-    except OSError:
-        pass
-else:
+def _publish_token():
+    """Publish only after startup, never when tests or tools import this module."""
+    if _ENV_TOKEN and os.environ.get("LANGHIRE_API_TOKEN"):
+        # The host handed us the token: no file needed. Remove a stale one.
+        try:
+            _token_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
     # Development: the dev frontend reads the token from this file.
-    _token_path.parent.mkdir(parents=True, exist_ok=True)
-    _token_path.write_text(_API_TOKEN, encoding="utf-8")
-    try:
-        os.chmod(_token_path, stat.S_IRUSR | stat.S_IWUSR)
-    except OSError:
-        pass
+    from core.fileutil import replace_file
+    temp = _token_path.with_suffix(f".{os.getpid()}.tmp")
+    temp.write_text(_API_TOKEN, encoding="utf-8")
+    os.chmod(temp, stat.S_IRUSR | stat.S_IWUSR)
+    replace_file(temp, _token_path)
 
 # ── Imports that need logging configured first ────────────────────────────
 from api import auth as auth_api, content, jobs, memory as memory_api, plugins, runs  # noqa: E402
@@ -80,12 +81,18 @@ from core import chromium, db  # noqa: E402
 from engine.browsers import kill_profile_browsers  # noqa: E402
 from engine.data import prune_logs  # noqa: E402
 from engine.runner import manager  # noqa: E402
-from resume import application_documents, main_resume  # noqa: E402
+from resume import application_documents, main_resume, evidence  # noqa: E402
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _publish_token()
+    from core.recovery import snapshot
+    try:
+        snapshot()
+    except Exception:
+        _log.exception('Startup recovery backup failed; existing data was left intact')
     _log.info(f"Backend {APP_VERSION} starting; data dir {get_data_dir()}")
     kill_profile_browsers()  # leftovers from a crash
     try:
@@ -225,6 +232,12 @@ if __name__ == "__main__":
     if sys.platform != "win32":
         signal.signal(signal.SIGHUP, signal.SIG_IGN)
     port = _resolve_port()
+    # A second launch must not publish a token before discovering the port is occupied.
+    import socket
+    with socket.socket() as probe:
+        probe.settimeout(0.5)
+        if probe.connect_ex(('127.0.0.1', port)) == 0:
+            raise SystemExit(f'LangHire port {port} is already in use; existing server and saved data were left unchanged.')
     _log.info(f"Starting server on 127.0.0.1:{port} (pid={os.getpid()})")
 
     if getattr(sys, "frozen", False):

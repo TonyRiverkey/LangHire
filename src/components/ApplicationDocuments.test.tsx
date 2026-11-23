@@ -3,10 +3,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import ApplicationDocuments from "./ApplicationDocuments";
 import { getApplicationPdf } from "../lib/api";
-import { getDocuments, prepareDocuments, reviewDocuments, type DocumentState } from "../lib/applicationDocuments";
+import { analyzeDocuments, generateDocuments, getDocuments, prepareDocuments, reviewDocuments, type DocumentState } from "../lib/applicationDocuments";
 
 vi.mock("../lib/api", () => ({ getApplicationPdf: vi.fn() }));
-vi.mock("../lib/applicationDocuments", () => ({ getDocuments: vi.fn(), prepareDocuments: vi.fn(), reviewDocuments: vi.fn() }));
+vi.mock("../lib/applicationDocuments", () => ({ analyzeDocuments: vi.fn(), generateDocuments: vi.fn(), confirmEvidence: vi.fn(), getDocuments: vi.fn(), prepareDocuments: vi.fn(), reviewDocuments: vi.fn() }));
 const prepared: DocumentState = {
   required_mode: "combined", ready: false, message: "Review the documents", attempts: [],
   current: { mode: "combined", letter: "Dear Alpha", reviewed: false, files: [{ kind: "combined", name: "Combined application PDF", asset: "version/application.pdf" }] },
@@ -20,6 +20,25 @@ beforeEach(() => {
   URL.revokeObjectURL = vi.fn();
 });
 describe("ApplicationDocuments", () => {
+  it("shows cited draft changes and leaves generated files unapproved", async () => {
+    const draft = {id:"draft-1",positioning:"Operational HR",questions:["Which project did you own?"],
+      requirements:[{quote:"Formal investigations",kind:"required",strength:"direct",evidence_ids:["source"],gap:""}],
+      edits:[{section:0,revised:"Revised HR summary",reason:"Emphasize investigations",evidence_ids:["source"]}],
+      evidence:{source:{statement:"Conducted investigations",status:"source_resume"}},before:{"0":"Original summary"},letter:""};
+    vi.mocked(analyzeDocuments).mockResolvedValue({...prepared,current:null,evidence_draft:draft});
+    vi.mocked(generateDocuments).mockResolvedValue({...prepared,evidence_draft:draft});
+    const user=userEvent.setup();render(<ApplicationDocuments jobUrl="https://example.com/a" />);
+    await user.click(screen.getByText("Application documents"));
+    await user.click(await screen.findByRole("button",{name:"Review evidence and draft changes"}));
+    expect(await screen.findByText("Formal investigations (required)")).toBeInTheDocument();
+    await user.click(screen.getByText("Emphasize investigations"));
+    expect(screen.getByText("Original summary")).toBeInTheDocument();
+    expect(screen.getByText("Revised HR summary")).toBeInTheDocument();
+    await user.click(screen.getByRole("button",{name:"Create PDFs from this draft"}));
+    expect(generateDocuments).toHaveBeenCalledWith("https://example.com/a","draft-1","auto");
+    expect(await screen.findByRole("button",{name:"Approve documents for application"})).toBeDisabled();
+    expect(reviewDocuments).not.toHaveBeenCalled();
+  });
   it("prepares per-job files, previews a PDF, and requires explicit review", async () => {
     const user = userEvent.setup();
     render(<ApplicationDocuments jobUrl="https://example.com/a" />);

@@ -22,7 +22,7 @@ async def get_profile():
 
 @router.put("/profile")
 async def update_profile(profile: ProfileBody):
-    save_profile(profile.model_dump())
+    save_profile({**load_profile(), **profile.model_dump()})
     return {"success": True}
 
 

@@ -716,3 +716,24 @@ def test_find_dropped_terms_ignores_generic_words():
     original = "Built Tableau dashboards and SQL reporting to show more insights for the company."
     tailored = "Tableau dashboards and SQL reporting delivering insights."
     assert find_dropped_terms(original, tailored, jd) == []  # 'show', 'more', 'company' are not job keywords
+def test_dated_role_subheadings_remain_experience_across_pages():
+    import pymupdf
+    from resume.tailor import _extract_sections, _identify_tailorable_sections
+
+    with pymupdf.open() as doc:
+        for role, date in [("Employer | Human Resources Generalist", "August 2026 - Present"),
+                           ("Employer | Human Resources Specialist", "October 2023 - August 2026")]:
+            page = doc.new_page()
+            page.insert_text((50, 50), "PROFESSIONAL EXPERIENCE", fontsize=18)
+            page.insert_text((50, 80), role, fontsize=14)
+            page.insert_text((50, 100), f"Vancouver, BC | {date}", fontsize=10)
+            page.insert_text((50, 120), "- Supported managers and operational teams.", fontsize=10)
+        page.insert_text((50, 160), "ADDITIONAL CAPABILITIES", fontsize=14)
+        page.insert_text((50, 180), "Prepared reports and maintained records.", fontsize=10)
+        sections = _extract_sections(doc)
+
+    experience = _identify_tailorable_sections(sections, {"experience": True})
+    assert len(experience) == 2
+    assert "Employer | Human Resources Generalist" in experience[0]["text"]
+    assert "October 2023 - August 2026" in experience[1]["text"]
+    assert sections[-1]["section_type"] == "other"
