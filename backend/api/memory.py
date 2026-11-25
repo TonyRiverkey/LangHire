@@ -193,12 +193,20 @@ async def get_qa_stats():
         return {"total": 0, "answered": 0, "unanswered": 0}
     return store.qa_stats()
 
+
+@router.post('/qa/sync-profile-questions')
+async def sync_profile_questions():
+    from resume.questions import sync_saved_questions
+    result=sync_saved_questions()
+    return {'success':result['errors']==0,**result}
+
 @router.put("/qa/{qa_id}")
 async def update_qa(qa_id: int, body: QAUpdateRequest):
     store = get_memory_store()
     if not store:
         return api_error("no_store", "Memory store not available")
-    store.qa_update(qa_id, body.answer)
+    if not store.qa_update(qa_id, body.answer):
+        return api_error('question_changed','This question was deleted or merged. Reload the list before saving.',409)
     requeued = requeue_answered_jobs(store) if (body.answer or "").strip() else []
     return {"success": True, "requeued": len(requeued)}
 
@@ -215,7 +223,10 @@ async def merge_qa(source_id: int, target_id: int):
     store = get_memory_store()
     if not store:
         return api_error("no_store", "Memory store not available")
-    store.qa_merge(source_id, target_id)
+    try:
+        store.qa_merge(source_id, target_id)
+    except ValueError as error:
+        return api_error('conflicting_answers',str(error),409)
     return {"success": True}
 
 @router.post("/qa/auto-squash")
@@ -265,8 +276,8 @@ async def smart_squash_qa():
             keep_id = group.get("keep")
             merge_ids = group.get("merge", [])
             for mid in merge_ids:
-                store.qa_merge(mid, keep_id)
-                merged_count += 1
+                if store.qa_merge(mid, keep_id):
+                    merged_count += 1
         return {"success": True, "merged": merged_count}
     except Exception as e:
         return api_error("llm_error", f"Smart squash failed: {str(e)}", 500)
@@ -310,6 +321,9 @@ def requeue_answered_jobs(store) -> list[str]:
         if not missing:
             continue
         if all(store.qa_is_answered(q) for q in missing):
-            db.update_job(url, status="pending", error=None)
-            requeued.append(url)
+            from engine.matching import score_updates
+            from core.config import load_profile
+            updates={'status':'pending','error':None,**score_updates({**job,'status':'pending'},load_profile())}
+            if db.update_job(url,if_unchanged={'status':'needs_input','description':job.get('description')},**updates) and updates['status']=='pending':
+                requeued.append(url)
     return requeued

@@ -110,6 +110,8 @@ async def add_job_manually(body: JobAddRequest):
     }
     job.update(score_updates(job, load_profile()))
     db.add_jobs([job])
+    from resume.questions import publish_job_questions
+    publish_job_questions(job)
     return {"success": True, "url": url, "fetched": sorted(fetched)}
 
 

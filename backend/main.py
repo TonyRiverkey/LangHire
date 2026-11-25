@@ -100,6 +100,9 @@ async def lifespan(app: FastAPI):
         if recovered:
             _log.info(f"Recovered {recovered} stale in_progress jobs back to pending")
         db.mark_interrupted_runs()
+        from resume.questions import sync_saved_questions
+        questions = sync_saved_questions()
+        _log.info('Profile question sync: %s',questions)
     except Exception as e:
         _log.error(f"Database startup failed: {e}", exc_info=True)
     try:

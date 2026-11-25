@@ -65,6 +65,10 @@ def inputs(job):
     revision = hashlib.sha256(payload.encode() + source.read_bytes()).hexdigest()
     evidence = {f'section-{i}': {'statement': s['text'], 'status': 'source_resume'} for i,s in enumerate(sections)}
     evidence.update({e['id']: e for e in profile.get('confirmed_evidence', [])})
+    from resume.questions import answered_profile_questions
+    answers=answered_profile_questions()
+    evidence.update({answer['id']:answer for answer in answers})
+    revision=hashlib.sha256((revision+json.dumps(answers,sort_keys=True)).encode()).hexdigest()
     notes = profile.get('notes','')
     for line in reversed(notes.splitlines()):
         if line.startswith('Confirmed resume evidence') and ': {' in line:
@@ -165,6 +169,8 @@ async def analyze(body: AnalyzeRequest):
                       evidence=evidence, before={str(e['section']):sections[e['section']]['text'] for e in result['edits']})
         if not db.update_job(body.job_url, if_unchanged={'description':job['description'],'status':job['status'],'evidence_draft':job.get('evidence_draft')}, evidence_draft=result):
             raise ValueError('Another draft or job update occurred. Reload before retrying.')
+        from resume.questions import publish_job_questions
+        publish_job_questions({**job,'evidence_draft':result})
         return packs.documents(body.job_url)
     except (ValueError, OSError, TimeoutError) as error:
         raise HTTPException(400,str(error)) from error

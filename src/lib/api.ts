@@ -457,6 +457,10 @@ export async function autoSquashQA() {
   return request<{ success: boolean; merged: number }>("/qa/auto-squash", { method: "POST" });
 }
 
+export async function syncProfileQuestions() {
+  return request<{ success: boolean; added: number; linked: number; errors: number }>("/qa/sync-profile-questions", { method: "POST" });
+}
+
 export async function smartSquashQA() {
   return request<{ success: boolean; merged: number }>("/qa/smart-squash", { method: "POST" });
 }

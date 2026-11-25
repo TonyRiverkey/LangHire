@@ -10,6 +10,7 @@ import {
   mergeQA,
   autoSquashQA,
   smartSquashQA,
+  syncProfileQuestions,
 } from "../lib/api";
 import { trackEvent } from "../lib/analytics";
 import type { QAEntry } from "../lib/types";
@@ -32,6 +33,7 @@ vi.mock("../lib/api", () => ({
   mergeQA: vi.fn(),
   autoSquashQA: vi.fn(),
   smartSquashQA: vi.fn(),
+  syncProfileQuestions: vi.fn(),
 }));
 
 const mockGetQAList = vi.mocked(getQAList);
@@ -197,4 +199,34 @@ describe("QA page", () => {
     render(<QA />);
     expect(await screen.findByText("API Error 500: boom")).toBeInTheDocument();
   });
+});
+
+
+describe("profile question sources", () => {
+  it("syncs stored gaps and displays source context without applying", async () => {
+    vi.mocked(updateQA).mockClear();
+    vi.mocked(getQAList).mockResolvedValue([makeEntry({question_type:"profile",answer:"",sources:[{kind:"collection",job_url:"https://example.test/job",job_label:"Example HR Partner",topic:"Projects",evidence:"Lead projects",question:"Which projects?"}]})]);
+    vi.mocked(getQAStats).mockResolvedValue({total:1,answered:0,unanswered:1});
+    vi.mocked(syncProfileQuestions).mockResolvedValue({success:true,added:1,linked:1,errors:0});
+    const user=userEvent.setup();render(<QA />);
+    await user.click(await screen.findByRole("button",{name:"Sync saved job questions"}));
+    expect(syncProfileQuestions).toHaveBeenCalled();
+    await user.click(await screen.findByText("Sources and question context (1)"));
+    expect(screen.getByText("Lead projects")).toBeInTheDocument();
+    expect(screen.getByRole("link",{name:"Example HR Partner"})).toHaveAttribute("href","https://example.test/job");
+    expect(updateQA).not.toHaveBeenCalled();
+  });
+});
+
+
+it("keeps typed answer text and offers retry when saving fails", async () => {
+  vi.mocked(getQAList).mockResolvedValue([makeEntry()]);
+  vi.mocked(getQAStats).mockResolvedValue({total:1,answered:1,unanswered:0});
+  vi.mocked(updateQA).mockRejectedValueOnce(new Error("Question changed; reload before saving"));
+  const user=userEvent.setup();render(<QA />);
+  const input=await screen.findByPlaceholderText("card.answerPlaceholder");
+  await user.clear(input); await user.type(input,"My unsaved detail");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Question changed");
+  expect(input).toHaveValue("My unsaved detail");
+  expect(screen.getByRole("button",{name:"Retry saving answer"})).toBeInTheDocument();
 });

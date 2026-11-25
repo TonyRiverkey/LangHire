@@ -26,6 +26,16 @@ async def update_profile(profile: ProfileBody):
     return {"success": True}
 
 
+@router.post('/profile/notes/consolidate')
+async def consolidate_notes():
+    from core.profile_notes import consolidate_profile_notes
+    try:
+        return {'success':True,**consolidate_profile_notes()}
+    except ValueError as error:
+        from .common import api_error
+        return api_error('notes_not_changed',str(error),409)
+
+
 @router.get("/settings/llm")
 async def get_llm():
     return load_llm_settings()

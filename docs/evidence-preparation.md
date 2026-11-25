@@ -34,3 +34,25 @@ the same policy. Applied history and active attempts keep their status; manually
 jobs are not automatically restored. Only skips made by this policy can be restored after
 their score improves. Document approval and new application attempts also enforce the current
 minimum, including when a stale UI or manual status change would otherwise bypass it.
+
+## Profile questions and evidence notes
+
+Successful LinkedIn collection and resume analysis publish profile gaps to Q&A without starting an
+application. Startup also backfills saved active jobs; the Q&A Sync saved job questions button retries
+that import. Skipped and already-applied jobs are not used to create new profile-gap questions.
+Every question retains its job, review/preparation origin, original wording and supporting excerpt.
+Repeated imports reuse source keys and canonical questions, including earlier merged wordings.
+
+Automatic matching ignores punctuation and limited conversational filler. Numbers, negation,
+tools and ownership verbs remain significant. Related but distinct requirements stay separate unless
+explicitly merged. A merge copies an existing answer into an empty target and refuses different
+nonempty answers. Context and original question rows are retained. No unanswered profile question
+is auto-filled. Only answers explicitly saved by the user become profile evidence for later reviews
+and resume drafts; a changed answer invalidates an older preparation context.
+
+POST `/profile/notes/consolidate` condenses repeated evidence snapshots, retaining the most recent
+statement for every topic and unique surrounding notes. The full original profile and every dated
+snapshot remain under the private data directory's `notes_archives`. The operation is idempotent
+and refuses to replace a profile changed during consolidation. It never changes the resume PDF.
+Existing document files remain available, but preparation drafts require refresh after evidence-context
+changes. These archives and candidate data must never be committed.

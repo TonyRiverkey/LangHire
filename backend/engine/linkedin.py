@@ -176,6 +176,8 @@ async def _search_city(city, title, url, quota, entry, profile, llm, seen, ctx, 
             entry["duplicates"] += 1
             return "Already saved by another operation."
         seen.add(job["url"])
+        from resume.questions import publish_job_questions
+        publish_job_questions(job)
         entry["saved"] += 1
         ctx.counters["collected"] = ctx.counters.get("collected", 0) + 1
         events.emit("job_found", f"Saved {job['title']} at {job['company']} ({city})", job_url=job["url"], source="linkedin")

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, Trash2, Merge, Sparkles, Zap, HelpCircle, X } from "lucide-react";
-import { getQAList, getQAStats, updateQA, deleteQA, mergeQA, autoSquashQA, smartSquashQA } from "../lib/api";
+import { getQAList, getQAStats, updateQA, deleteQA, mergeQA, autoSquashQA, smartSquashQA, syncProfileQuestions } from "../lib/api";
 import { trackEvent } from "../lib/analytics";
 import type { QAEntry, QAStats } from "../lib/types";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,7 @@ export default function QA() {
   const [loading, setLoading] = useState(true);
   const [squashing, setSquashing] = useState(false);
   const [smartSquashing, setSmartSquashing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [mergeSource, setMergeSource] = useState<QAEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -44,6 +45,7 @@ export default function QA() {
   const handleUpdate = async (id: number, answer: string) => {
     const res = await updateQA(id, answer);
     setQuestions(prev => prev.map(q => q.id === id ? { ...q, answer } : q));
+    setStats(await getQAStats());
     trackEvent("qa_answer_updated");
     if (res?.requeued) {
       showToast(t("toast.requeued", { count: res.requeued }));
@@ -59,10 +61,13 @@ export default function QA() {
 
   const handleMerge = async (targetId: number) => {
     if (!mergeSource) return;
-    await mergeQA(mergeSource.id, targetId);
-    setMergeSource(null);
-    fetchData();
-    showToast(t("toast.merged"));
+    setError(null);
+    try {
+      await mergeQA(mergeSource.id, targetId);
+      setMergeSource(null);
+      fetchData();
+      showToast(t("toast.merged"));
+    } catch (e) { setError(e instanceof Error ? e.message : "Questions were not merged. Existing answers were preserved."); }
   };
 
   const handleAutoSquash = async () => {
@@ -120,6 +125,16 @@ export default function QA() {
       </div>
 
       {error && <div className="error-banner mt-4 mb-4">{error}</div>}
+      <button className="btn-secondary mt-3" disabled={syncing} onClick={async () => {
+        setSyncing(true); setError(null);
+        try {
+          const result=await syncProfileQuestions();
+          await fetchData();
+          if (!result.success) setError("Some questions could not be imported. Their originals remain on the jobs; retry sync.");
+          else showToast(`${result.added} new questions imported. Existing answers were preserved.`);
+        } catch (e) { setError(e instanceof Error ? e.message : "Question sync failed"); }
+        finally { setSyncing(false); }
+      }}>{syncing ? "Syncing…" : "Sync saved job questions"}</button>
 
       {/* Search + Filter */}
       <div className="flex items-center gap-3 mt-5 mb-4">
@@ -209,7 +224,7 @@ function QACard({
   isMergeSource,
 }: {
   entry: QAEntry;
-  onUpdate: (id: number, answer: string) => void;
+  onUpdate: (id: number, answer: string) => Promise<void>;
   onDelete: (id: number) => void;
   onMergeStart: () => void;
   onMergeTarget: () => void;
@@ -219,15 +234,20 @@ function QACard({
   const { t } = useTranslation("qa");
   const [answer, setAnswer] = useState(entry.answer);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
+  const persist = async (val: string) => {
+    setSaving(true); setSaveError("");
+    try { await onUpdate(entry.id,val); }
+    catch (e) { setSaveError(e instanceof Error ? e.message : "Answer could not be saved. Your text is retained here."); }
+    finally { setSaving(false); }
+  };
   const handleChange = (val: string) => {
     setAnswer(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      setSaving(true);
-      await onUpdate(entry.id, val);
-      setSaving(false);
+      await persist(val);
     }, 800);
   };
 
@@ -245,7 +265,7 @@ function QACard({
             </span>
           )}
           <span className="px-2 py-0.5 bg-secondary rounded text-[10px] font-semibold text-muted-foreground">
-            {entry.question_type}
+            {entry.question_type === "profile" ? "Profile evidence" : entry.question_type}
           </span>
         </div>
       </div>
@@ -258,6 +278,18 @@ function QACard({
         className="input-base resize-y text-sm mb-2"
         onClick={(e) => e.stopPropagation()}
       />
+      {!!entry.sources?.length && <details className="mb-3 text-xs">
+        <summary className="cursor-pointer">Sources and question context ({entry.sources.length})</summary>
+        {entry.sources.map((source,i) => <div key={i} className="mt-2 border-l border-border pl-2">
+          <p>{source.kind === "collection" ? "Job review" : source.kind === "tailoring" ? "Resume preparation" : "Earlier wording"}: {source.topic}</p>
+          <p>{source.question}</p>
+          {source.evidence && <blockquote>{source.evidence}</blockquote>}
+          {source.job_url && <a href={source.job_url} target="_blank" rel="noopener noreferrer" className="underline">{source.job_label || "Open source posting"}</a>}
+        </div>)}
+      </details>}
+      {saveError && <div role="alert" className="text-destructive text-sm mb-2">{saveError}
+        <button className="underline ml-2" disabled={saving} onClick={e => { e.stopPropagation(); void persist(answer); }}>Retry saving answer</button>
+      </div>}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">

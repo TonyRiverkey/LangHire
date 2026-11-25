@@ -21,7 +21,7 @@
   },
   "emptyState": {
     "noMatching": "No matching questions found.",
-    "noQuestions": "No questions yet. Questions will appear here as the agent applies to jobs."
+    "noQuestions": "No questions yet. Job reviews, resume preparation and application forms can add questions here. Use Sync saved job questions to import existing profile gaps."
   },
   "card": {
     "answerPlaceholder": "Type your answer here...",

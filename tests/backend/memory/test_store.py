@@ -560,7 +560,7 @@ def test_qa_auto_squash(store):
         "INSERT INTO qa_repository (question, normalized, answer, created_at, updated_at) "
         "VALUES (?, ?, '', '2020-01-01', '2020-01-01')",
         ("How many years of experience do you have?",
-         store._normalize_qa("How many years of experience do you have extra")),
+         store._normalize_qa("Please how many years of experience do you have")),
     )
     conn.commit()
     merges = store.qa_auto_squash()
@@ -614,10 +614,10 @@ def test_separate_stores_have_isolated_dbs(tmp_path):
 
 
 def test_schema_version_recorded(store):
-    """Migrations advance schema_version to 2 (qa_repository present)."""
+    """Migrations advance schema_version to 3 (Q&A source links and confirmation metadata)."""
     conn = store._get_conn()
     version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
-    assert version == 2
+    assert version == 3
     # qa_repository table exists.
     tables = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}

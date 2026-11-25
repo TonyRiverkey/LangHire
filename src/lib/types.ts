@@ -487,6 +487,7 @@ export interface SetupStatus {
 
 // ── Q&A Repository ───────────────────────────────────────────────────────
 export interface QAEntry {
+  sources?: { kind: string; job_url: string; job_label: string; topic: string; evidence: string; question: string }[];
   id: number;
   question: string;
   normalized: string;
