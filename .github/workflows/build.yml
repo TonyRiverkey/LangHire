@@ -1,9 +1,7 @@
 name: Build & Release
 
+# Automatic runs paused; restore the previous triggers to resume.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:

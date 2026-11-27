@@ -5,12 +5,9 @@ name: End-to-end tests
 # scripted OpenAI-compatible model (tests/fixtures). No API keys, no network,
 # no real employers. See tests/e2e/conftest.py and docs/ci-macos-runner.md.
 
+# Automatic runs paused; restore the previous triggers to resume.
 on:
-  push:
-  pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * *"   # nightly: also runs the packaged-backend variant
 
 concurrency:
   group: e2e-${{ github.ref }}

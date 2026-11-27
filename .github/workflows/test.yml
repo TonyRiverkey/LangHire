@@ -1,10 +1,7 @@
 name: Integration Tests
 
+# Automatic runs paused; restore the previous triggers to resume.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 jobs:

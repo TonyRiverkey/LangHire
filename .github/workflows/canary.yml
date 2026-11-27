@@ -5,9 +5,8 @@ name: Nightly apply canary
 # users hit it. Nothing is sent to real employers. Needs repository secrets
 # CANARY_LLM_BASE_URL, CANARY_LLM_MODEL (a vision-capable model) and CANARY_LLM_API_KEY.
 
+# Automatic runs paused; restore the previous triggers to resume.
 on:
-  schedule:
-    - cron: "17 6 * * *"
   workflow_dispatch:
 
 jobs:
